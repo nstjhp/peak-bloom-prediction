@@ -1,0 +1,287 @@
+---
+title: "Peak cherry bloom prediction"
+author: "Nick Pullen"
+date: "`r lubridate::now()`"
+output: 
+  html_document:
+    code_folding: hide
+    keep_md: false
+    df_print: paged
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+knit: (function(input, ...) {
+    rmarkdown::render(
+      input, 
+      output_format = 'all',
+      output_file = paste0(
+        xfun::sans_ext(input), '_', format(Sys.time(), "%Y-%m-%d-%H%M")),
+      envir = new.env(),
+      output_dir = here::here("output")
+    )
+  })
+---
+<style>
+pre {
+ overflow-x: auto;
+}
+pre code {
+  word-wrap: normal;
+  white-space: pre;
+}
+div.main-container {
+  width: 100%;
+  max-width: 1800px;
+  margin-left: auto;
+  margin-right: auto;
+}
+</style>
+```{r setup, results='show', message=TRUE, warning=TRUE}
+knitr::opts_chunk$set(message = FALSE, echo = TRUE)
+options(width = 300)
+library(tidyverse)
+library(lubridate)
+library(flextable)
+library(Hmisc)
+library(rnoaa)
+
+# Functions
+myflextable = function(data, ...) {
+  set_flextable_defaults(na_str = "NA", theme_fun = theme_booktabs, font.size = 12, padding.bottom = 1, padding.top = 1)
+  x = flextable(data, ...)
+  x = colformat_int(x, big.mark = "")
+  x = colformat_double(x, big.mark = "", digits = 2, na_str = "NA")
+  return(x)
+}
+```
+
+## Load data
+```{r}
+dc = read_csv("data/washingtondc.csv")
+liestal = read_csv("data/liestal.csv")
+swiss = read_csv("data/meteoswiss.csv") %>% 
+  mutate(location = str_remove(location, "Switzerland/"))
+kyoto = read_csv("data/kyoto.csv")
+japan = read_csv("data/japan.csv")
+korea = read_csv("data/south_korea.csv")
+```
+
+## Check quantiles especially
+```{r}
+Hmisc::describe(dc)
+head(ch)
+tail(kyoto)
+quantile(kyoto$bloom_doy, probs = c(0, 0.1, 0.25, 0.4, 0.5, 0.6, 0.75, 0.9, 1))
+quantile(ch$bloom_doy, probs = c(0, 0.1, 0.25, 0.4, 0.5, 0.6, 0.75, 0.9, 1))
+quantile(dc$bloom_doy, probs = c(0, 0.1, 0.25, 0.4, 0.5, 0.6, 0.75, 0.9, 1))
+```
+
+```{r}
+liestal %>% 
+  ggplot(aes(x = year, y = bloom_doy)) +
+  geom_point(shape = 21, fill = 'plum1') +
+  geom_line(colour = 'plum1') +
+  labs(x = "Year", y = "Peak bloom (days since Jan 1st)")
+```
+
+```{r}
+swiss %>% 
+  ggplot(aes(x = year, y = bloom_doy, colour = location)) +
+  geom_point() +
+  facet_wrap(~location) +
+  labs(x = "Year", y = "Peak bloom days since Jan 1st") + 
+  theme(legend.position = "none")
+```
+
+## Climate data
+```{r}
+#' @param stationid the `rnoaa` station id (see [ghcnd_stations()])
+#' @return a data frame with columns
+#'   - `year` ... the year of the observations
+#'   - `season` ... the season (Winter, Spring, Summer, Fall)
+#'   - `tmax_avg` ... average maximum temperate in tenth degree Celsius
+get_temperature = function(stationid) {
+  ghcnd_search(stationid = stationid, var = c("tmax"), 
+               date_min = "1950-01-01", date_max = "2022-01-31")[[1]] %>%
+    mutate(year = as.integer(format(date, "%Y")),
+           month = as.integer(strftime(date, '%m')) %% 12, # make December "0"
+           season = cut(month, breaks = c(0, 2, 5, 8, 11),
+                        include.lowest = TRUE,
+                        labels = c("Winter", "Spring", "Summer", "Fall")),
+           year = if_else(month == 0, year + 1L, year)) %>%
+    group_by(year, season) %>%
+    summarise(tmax_avg = mean(tmax, na.rm = TRUE))
+}
+
+historic_temperatures =
+  tibble(location = "washingtondc", get_temperature("USC00186350")) %>%
+  bind_rows(tibble(location = "liestal", get_temperature("GME00127786"))) %>%
+  bind_rows(tibble(location = "kyoto", get_temperature("JA000047759"))) %>%
+  bind_rows(tibble(location = "vancouver", get_temperature("CA001108395")))
+
+historic_temperatures %>%
+  filter(location == "kyoto" & season == "Spring") %>%
+  ggplot() + 
+  aes(year, tmax_avg) + 
+  geom_line() +
+  xlim(1951, 2031) +
+  labs(x = "Year", y = "Average maximum temperature (1/10 °C)")
+```
+
+```{r}
+stations <- isd_stations()
+wloc = stations %>% filter(str_detect(station_name, "BASEL|RONALD R|KYOTO|VANCOUVER INTL"),
+                     str_detect(end, "2022"))
+  #  usaf   wban  station_name                     ctry  state icao     lat     lon elev_m    begin      end
+  # <chr>  <chr> <chr>                            <chr> <chr> <chr>  <dbl>   <dbl>  <dbl>    <dbl>    <dbl>
+  # 066010 99999 BASEL-BINNINGEN                  SZ    ""    ""      47.6    7.58  317   19901101 20220210
+  # 477590 99999 KYOTO                            JA    ""    ""      35.0  136.     46.5 19451031 20220210
+  # 718920 99999 VANCOUVER INTL                   CA    ""    "CYVR"  49.2 -123.      4.3 19550702 20220210
+  # 724050 13743 RONALD REAGAN WASHINGTON NATL AP US    "VA"  "KDCA"  38.8  -77.0     4.1 19360901 20220211
+```
+
+```{r}
+
+my_isd_remote = function (usaf, wban, year) 
+{
+    file.path(rnoaa:::isdbase(), "isd-lite", year, sprintf("%s-%s-%s%s", usaf, 
+        wban, year, ".gz"))
+}
+my_isd_local = function (usaf, wban, year, path, ext) 
+{
+    file.path(path, sprintf("%s-%s-%s%s", usaf, wban, year, 
+        ext))
+}
+my_isd_GET = function (usaf, wban, year, overwrite, force, ...) 
+{
+    isd_cache$mkdir()
+    rds <- my_isd_local(usaf, wban, year, isd_cache$cache_path_get(), 
+        ".rds")
+    if (!rnoaa:::is_isd(rds) || force) {
+        fp <- my_isd_local(usaf, wban, year, isd_cache$cache_path_get(), 
+            ".gz")
+        cli <- crul::HttpClient$new(my_isd_remote(usaf, wban, year), 
+            opts = list(...))
+        #browser()
+        tryget <- tryCatch(suppressWarnings(cli$get(disk = fp)), 
+            error = function(e) e)
+        if (inherits(tryget, "error") || !tryget$success()) {
+            unlink(fp)
+            stop("download failed for\n   ", my_isd_remote(usaf, 
+                wban, year), call. = FALSE)
+        }
+    }
+    return(rds)
+}
+my_isd = function(usaf, wban, year, overwrite = TRUE, cleanup = TRUE,
+                   additional = TRUE, parallel = FALSE, cores = getOption(
+                     "cl.cores",
+                     2
+                   ), progress = FALSE, force = FALSE, ...) {
+  rds_path <- my_isd_GET(usaf, wban, year, overwrite, force, ...)
+  gz_path <- sub("rds", "gz", rds_path)
+  # browser()
+  if (!file.exists(gz_path)) {
+    stop("file not found", call. = FALSE)
+  }
+  message(sprintf("<path>%s", gz_path), "\n")
+
+  lns <- readLines(gz_path, encoding = "latin1")
+  linesproc <- vector(mode = "list", length = length(lns))
+  for (i in seq_along(lns)) {
+    linesproc[[i]] <- lns[i]
+  }
+  df <- as_tibble(unlist(linesproc))
+  saveRDS(df, rds_path)
+  if (cleanup) {
+    unlink(gz_path) # delete
+  }
+  attr(df, "source") <- rds_path
+  df
+}
+```
+
+## Get Basel weather data
+```{r}
+my_isd(usaf = "066010", wban = "99999", year=1990)
+
+basel_years = year(ymd(wloc %>% filter(ctry=="SZ") %>% pull(begin))):year(ymd(wloc %>% filter(ctry=="SZ") %>% pull(end)))
+basel_list = vector(mode = "list", length = length(basel_years))
+
+#basel_years = c(1990,1991)
+for (i in seq_along(basel_years)) {
+  tryCatch({
+    print(basel_years[i])
+    basel_list[[i]] = my_isd(usaf = "066010", wban = "99999", year=basel_years[i])
+  }, error=function(e){cat("ERROR :",conditionMessage(e), "\n")})
+}
+
+basel_tbl = map_dfr(basel_list, bind_rows) %>%
+  separate(value, into = c("yr", "mon", "day", "hr", "temp", rep(NA, 7)), sep = "\\s+", convert = TRUE)
+basel_tbl = basel_tbl %>% mutate(datetime = make_datetime(yr, mon, day, hr)) %>% filter(between(temp, -900, 900)) %>% mutate(temp = temp/10)
+ggplot(basel_tbl, aes(x=datetime, y=temp)) + geom_line() + facet_wrap(~yr, ncol=4, scales = "free_x")
+```
+
+## Get Kyoto weather data
+```{r}
+kyoto_years = year(ymd(wloc %>% filter(ctry=="JA") %>% pull(begin))):year(ymd(wloc %>% filter(ctry=="JA") %>% pull(end)))
+kyoto_list = vector(mode = "list", length = length(kyoto_years))
+
+for (i in seq_along(kyoto_years)) {
+  tryCatch({
+    print(kyoto_years[i])
+    kyoto_list[[i]] = my_isd(usaf = "477590", wban = "99999", year=kyoto_years[i])
+  }, error=function(e){cat("ERROR :",conditionMessage(e), "\n")})
+}
+
+kyoto_tbl = map_dfr(kyoto_list, bind_rows) %>%
+  separate(value, into = c("yr", "mon", "day", "hr", "temp", rep(NA, 7)), sep = "\\s+", convert = TRUE)
+kyoto_tbl = kyoto_tbl %>% mutate(datetime = make_datetime(yr, mon, day, hr)) %>% filter(between(temp, -900, 900)) %>% mutate(temp = temp/10)
+ggplot(kyoto_tbl, aes(x=datetime, y=temp)) + geom_line() + facet_wrap(~yr, ncol=6, scales = "free_x")
+```
+
+## Get Washington DC weather data
+```{r}
+washingtonDC_years = year(ymd(wloc %>% filter(ctry=="US") %>% pull(begin))):year(ymd(wloc %>% filter(ctry=="US") %>% pull(end)))
+washingtonDC_list = vector(mode = "list", length = length(washingtonDC_years))
+
+for (i in seq_along(washingtonDC_years)) {
+  tryCatch({
+    print(washingtonDC_years[i])
+    washingtonDC_list[[i]] = my_isd(usaf = "724050", wban = "13743", year=washingtonDC_years[i])
+  }, error=function(e){cat("ERROR :",conditionMessage(e), "\n")})
+}
+
+washingtonDC_tbl = map_dfr(washingtonDC_list, bind_rows) %>%
+  separate(value, into = c("yr", "mon", "day", "hr", "temp", rep(NA, 7)), sep = "\\s+", convert = TRUE)
+washingtonDC_tbl = washingtonDC_tbl %>% mutate(datetime = make_datetime(yr, mon, day, hr)) %>% filter(between(temp, -900, 900)) %>% mutate(temp = temp/10)
+ggplot(washingtonDC_tbl, aes(x=datetime, y=temp)) + geom_line() + facet_wrap(~yr, ncol=6, scales = "free_x")
+```
+
+## Get Washington DC weather data
+```{r}
+vancouver_years = year(ymd(wloc %>% filter(ctry=="CA") %>% pull(begin))):year(ymd(wloc %>% filter(ctry=="CA") %>% pull(end)))
+vancouver_list = vector(mode = "list", length = length(vancouver_years))
+
+for (i in seq_along(vancouver_years)) {
+  tryCatch({
+    print(vancouver_years[i])
+    vancouver_list[[i]] = my_isd(usaf = "718920", wban = "99999", year=vancouver_years[i])
+  }, error=function(e){cat("ERROR :",conditionMessage(e), "\n")})
+}
+
+vancouver_tbl = map_dfr(vancouver_list, bind_rows) %>%
+  separate(value, into = c("yr", "mon", "day", "hr", "temp", rep(NA, 7)), sep = "\\s+", convert = TRUE)
+vancouver_tbl = vancouver_tbl %>% mutate(datetime = make_datetime(yr, mon, day, hr)) %>% filter(between(temp, -900, 900)) %>% mutate(temp = temp/10)
+ggplot(vancouver_tbl, aes(x=datetime, y=temp)) + geom_line() + facet_wrap(~yr, ncol=6, scales = "free_x")
+```
+
+```{r}
+saveRDS(basel_tbl, "data/small_basel_hrly_temp.rds")
+saveRDS(kyoto_tbl, "data/small_kyoto_hrly_temp.rds")
+saveRDS(washingtonDC_tbl, "data/small_washingtonDC_hrly_temp.rds")
+saveRDS(vancouver_tbl, "data/small_vancouver_hrly_temp.rds")
+```
+
