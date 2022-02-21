@@ -97,14 +97,14 @@ swiss %>%
 
 ## Climate data
 ```{r}
-#' @param stationid the `rnoaa` station id (see [ghcnd_stations()])
+#' @param stationid the `rnoaa` station id (see [ghcnd_stations()]) # go to https://www1.ncdc.noaa.gov/pub/data/ghcn/daily/ghcnd-stations.txt if this Timeouts: Error in curl::curl_fetch_disk(x$url$url, x$disk, handle = x$url$handle) : Timeout was reached: [ftp.ncdc.noaa.gov] Connection timed out after 10001 milliseconds
 #' @return a data frame with columns
 #'   - `year` ... the year of the observations
 #'   - `season` ... the season (Winter, Spring, Summer, Fall)
 #'   - `tmax_avg` ... average maximum temperate in tenth degree Celsius
 get_temperature = function(stationid) {
-  ghcnd_search(stationid = stationid, var = c("tmax"), 
-               date_min = "1950-01-01", date_max = "2022-01-31")[[1]] %>%
+  ghcnd_search(stationid = stationid, var = c("tmax", "tmin"), 
+               date_min = "1950-01-01", date_max = "2022-01-31", refresh = TRUE)[[1]] %>% # [[1]] is tmax, so do 2 for tmin or rbind separately
     mutate(year = as.integer(format(date, "%Y")),
            month = as.integer(strftime(date, '%m')) %% 12, # make December "0"
            season = cut(month, breaks = c(0, 2, 5, 8, 11),
@@ -112,12 +112,13 @@ get_temperature = function(stationid) {
                         labels = c("Winter", "Spring", "Summer", "Fall")),
            year = if_else(month == 0, year + 1L, year)) %>%
     group_by(year, season) %>%
-    summarise(tmax_avg = mean(tmax, na.rm = TRUE))
+    summarise(tmax_avg = mean(tmax, na.rm = TRUE))#,
+              #tmin_avg = mean(tmin, na.rm = TRUE))
 }
 
 historic_temperatures =
   tibble(location = "washingtondc", get_temperature("USC00186350")) %>%
-  bind_rows(tibble(location = "liestal", get_temperature("GME00127786"))) %>%
+  bind_rows(tibble(location = "liestal", get_temperature("GME00127786"))) %>% # SZ000001940 = BASEL BINNINGEN
   bind_rows(tibble(location = "kyoto", get_temperature("JA000047759"))) %>%
   bind_rows(tibble(location = "vancouver", get_temperature("CA001108395")))
 
@@ -130,6 +131,29 @@ historic_temperatures %>%
   labs(x = "Year", y = "Average maximum temperature (1/10 °C)")
 ```
 
+## Integrated Surface Data - Lite (Hourly temp data)
+https://www1.ncdc.noaa.gov/pub/data/noaa/isd-lite/
+From the Technical Document
+ > The ISD-Lite product is designed to be an easier to work with subset of the larger Integrated Surface Data hourly dataset.  ISD-Lite  > contains eight common hourly time-series climatological variables represented in a fixed-width format.  The elements extracted are:
+ > 
+ > 1.	Air temperature (degrees Celsius * 10)
+ > 2.	Dew point temperature (degrees Celsius * 10)
+ > 3.	Sea level pressure (hectopascals)
+ > 4.	Wind direction (angular degrees)
+ > 5.	Wind speed (meters per second * 10)
+ > 6.	Total cloud cover (coded, see format documentation)
+ > 7.	One-hour accumulated liquid precipitation (millimeters)
+ > 8.	Six-hour accumulated liquid precipitation (millimeters)
+ > 
+ > The ISD-Lite data are represented with a modified time stamp which corresponds to the nearest hour of actual observation.  Sub-hourly  > observations were removed.  Duplicate observations were resolved according to a ranking system.  
+ 
+Also note
+> the absence of flag data may make it difficult to determine good data from suspicious data
+
+Data format is:
+ - Year Month Day Hour AirTemp*10  ......
+ - MISSING VALUE: -9999
+ 
 ```{r}
 stations <- isd_stations()
 wloc = stations %>% filter(str_detect(station_name, "BASEL|RONALD R|KYOTO|VANCOUVER INTL"),
