@@ -1,0 +1,193 @@
+---
+title: "Peak cherry bloom prediction"
+author: "Nick Pullen"
+date: "`r lubridate::now()`"
+output: 
+  html_document:
+    code_folding: hide
+    keep_md: false
+    df_print: paged
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+knit: (function(input, ...) {
+    rmarkdown::render(
+      input, 
+      output_format = 'all',
+      output_file = paste0(
+        xfun::sans_ext(input), '_', format(Sys.time(), "%Y-%m-%d-%H%M")),
+      envir = new.env(),
+      output_dir = here::here("output")
+    )
+  })
+---
+<style>
+pre {
+ overflow-x: auto;
+}
+pre code {
+  word-wrap: normal;
+  white-space: pre;
+}
+div.main-container {
+  width: 100%;
+  max-width: 1800px;
+  margin-left: auto;
+  margin-right: auto;
+}
+</style>
+```{r setup, results='show', message=TRUE, warning=TRUE}
+knitr::opts_chunk$set(message = FALSE, echo = TRUE)
+options(width = 300)
+library(tidyverse)
+library(lubridate)
+library(flextable)
+library(chillR)
+
+# Functions
+myflextable = function(data, ...) {
+  set_flextable_defaults(na_str = "NA", theme_fun = theme_booktabs, font.size = 12, padding.bottom = 1, padding.top = 1)
+  x = flextable(data, ...)
+  x = colformat_int(x, big.mark = "")
+  x = colformat_double(x, big.mark = "", digits = 2, na_str = "NA")
+  return(x)
+}
+```
+
+## Load data
+```{r}
+# hourly temps
+washingtonDC_tbl = readRDS("data/small_washingtonDC_hrly_temp.rds")
+basel_tbl = readRDS("data/small_basel_hrly_temp.rds")
+kyoto_tbl = readRDS("data/small_kyoto_hrly_temp.rds")
+vancouver_tbl = readRDS("data/small_vancouver_hrly_temp.rds")
+# blooming dates
+bloom_dc = read_csv("data/washingtondc.csv")
+bloom_liestal = read_csv("data/liestal.csv")
+bloom_kyoto = read_csv("data/kyoto.csv")
+```
+
+## Add Julian days (day of year)
+```{r}
+washingtonDC_tbl = washingtonDC_tbl %>% 
+  mutate(JDay = yday(datetime)) %>% 
+  rename(Year=yr, Hour=hr, Temp=temp)
+kyoto_tbl = kyoto_tbl %>%
+  mutate(JDay = yday(datetime)) %>% 
+  rename(Year=yr, Hour=hr, Temp=temp)
+basel_tbl = basel_tbl %>% 
+  mutate(JDay = yday(date)) %>% 
+  rename(Year=yr, Hour=hr, Temp=temp)
+```
+
+## Chilling calcs require DF
+```{r}
+washington_DF = washingtonDC_tbl %>% select(Year, Month=mon, Day=day, Hour, Temp, JDay) %>% as.data.frame()
+washington_chilling = chilling(washington_DF, 305, 60)
+kyoto_DF = kyoto_tbl %>% select(Year, Month=mon, Day=day, Hour, Temp, JDay) %>% as.data.frame()
+kyoto_chilling = chilling(kyoto_DF, 305, 60)
+basel_DF = basel_tbl %>% select(Year, Month=mon, Day=day, Hour, Temp, JDay) %>% as.data.frame()
+basel_chilling = chilling(basel_DF, 305, 60)
+```
+
+## PhenoFlex
+```{r}
+iSeason_DC = genSeason(washington_DF, years = c(2009))
+res_DC = PhenoFlex(temp=washington_DF$Temp[iSeason_DC[[1]]],
+                 times=c(1: length(washington_DF$Temp[iSeason_DC[[1]]])),
+                 zc=zc, stopatzc=TRUE, yc=yc, basic_output=FALSE)
+```
+
+## Graphs of chill and heat accumulation
+```{r}
+DBreakDay <- res_DC$bloomindex
+seasontemps<-washington_DF[iSeason_DC[[1]],]
+seasontemps[,"x"]<-res_DC$x
+seasontemps[,"y"]<-res_DC$y
+seasontemps[,"z"]<-res_DC$z
+seasontemps<-add_date(seasontemps)
+
+ggplot(data=seasontemps[1:DBreakDay,],aes(x=Date,y=y)) +
+  geom_line(col="blue",lwd=1.5) +
+  theme_bw(base_size=20) +
+  geom_hline(yintercept=yc,lty=2) +
+  labs(title="Chill (y) accumulation")
+
+ggplot(data=seasontemps[1:DBreakDay,],aes(x=Date,y=z)) +
+  geom_line(col="red",lwd=1.5) +
+  theme_bw(base_size=20) +
+  geom_hline(yintercept=zc,lty=2) +
+  labs(title="Heat (z) accumulation")
+```
+
+## Sim Ann
+```{r}
+season_years = c(1938:1945, 1947:1965, 1974:2021)
+SeasonList = genSeasonList(washington_DF, years = season_years)
+par <-   c(40, 190, 0.5, 25, 3372.8,  9900.3, 6319.5, 5.939917e13,  4, 36,  4,  1.60)
+upper <- c(41, 200, 1.0, 30, 4000.0, 10000.0, 7000.0,       6.e13, 10, 40, 10, 50.00)
+lower <- c(38, 180, 0.1, 0 , 3000.0,  9000.0, 6000.0,       5.e13,  0,  0,  0,  0.05)
+s=Sys.time()
+Fit_res <- phenologyFitter(par.guess=par, 
+                           modelfn = PhenoFlex_GDHwrapper,
+                           bloomJDays=bloom_dc$bloom_doy[which(bloom_dc$year %in% season_years)],
+                           SeasonList=SeasonList, lower=lower, upper=upper,
+                           control=list(smooth=FALSE, verbose=TRUE, maxit=1000,
+                                        nb.stop.improvement=250))
+Sys.time()-s
+summary(Fit_res)
+plot(Fit_res)
+ggplot(bind_cols(year = season_years, 
+                 actual=Fit_res$bloomJDays, 
+                 predicted=Fit_res$pbloomJDays), 
+       aes(actual, predicted, fill=year)) + 
+  geom_point(shape=21, alpha=0.8, size=2) +
+  geom_abline(slope = 1) +
+  scale_fill_viridis_c(option = "H")
+```
+
+## Bootstrapping
+```{r}
+Fit_res.boot <- bootstrap.phenologyFit(Fit_res, boot.R=10,
+                                       control=list(smooth=FALSE, verbose=TRUE, maxit=10,
+                                                    nb.stop.improvement=5),
+                                       lower=lower, upper=upper, seed=1726354)
+summary(Fit_res.boot)
+plot(Fit_res.boot)
+```
+
+## bloom prediction fn using default parameters for models
+```{r}
+bloom_prediction3(washington_DF,  c(40, 40.1), c(191.3, 1000), permutations = TRUE)
+# NB Order is different from PhenoFlex pars output to Dynamic_Model input
+#dput(c(Fit_res$par[5:8], Fit_res$par[12], Fit_res$par[9] + 273))
+plot(Dynamic_Model(washington_DF$Temp[675940:680281], summ = TRUE, 3371.43507242016, 9900.31450583077, 6513.85706460303, 59399084503912.6, 11.7977277547057, 277.671729550815))
+```
+
+## PhenoFlex using optimised params for 2020-21
+```{r}
+iSeason_DC_2021 = genSeason(washington_DF, years = c(2021))
+res_DC_2021 = PhenoFlex(temp = washington_DF$Temp[iSeason_DC_2021[[1]]],
+                 times = c(1: length(washington_DF$Temp[iSeason_DC_2021[[1]]])),
+                 zc = Fit_res$par[2],
+                 stopatzc = TRUE,
+                 yc = Fit_res$par[1],
+                 basic_output = FALSE,
+                 s1 = Fit_res$par[3],
+                 Tu = Fit_res$par[4],
+                 E0 = Fit_res$par[5],
+                 E1 = Fit_res$par[6],
+                 A0 = Fit_res$par[7],
+                 A1 = Fit_res$par[8],
+                 Tf = Fit_res$par[9],
+                 Tc = Fit_res$par[10],
+                 Tb = Fit_res$par[11],
+                 slope = Fit_res$par[12],
+                 )
+washington_DF[iSeason_DC_2021[[1]][1] + res_DC_2021$bloomindex,]
+
+predicted_bloom_Jdays = chillR:::predictBloomDays(par = Fit_res$par, SeasonList = Fit_res$SeasonList, 
+        modelfn = Fit_res$modelfn)
+```
