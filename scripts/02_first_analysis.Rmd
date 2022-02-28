@@ -47,6 +47,8 @@ library(flextable)
 library(chillR)
 library(gghighlight)
 
+rerun_simann = FALSE
+
 # Functions
 myflextable = function(data, ...) {
   set_flextable_defaults(na_str = "NA", theme_fun = theme_booktabs, font.size = 12, padding.bottom = 1, padding.top = 1)
@@ -58,7 +60,7 @@ myflextable = function(data, ...) {
 ```
 
 ## Load data
-```{r}
+```{r, load-RDSs}
 # hourly temps
 washingtonDC_tbl = readRDS("data/small_washingtonDC_hrly_temp.rds")
 basel_tbl = readRDS("data/small_basel_hrly_temp.rds")
@@ -134,7 +136,7 @@ ggplot(data=seasontemps[1:DBreakDay,],aes(x=Date,y=z)) +
 ```
 
 ## Sim Ann Washington DC
-```{r}
+```{r, Sim-Ann-Washington}
 # years with sufficient data
 season_years_washington = c(1938:1945, 1947:1965, 1974:2021)
 SeasonList = genSeasonList(washington_DF, mrange = c(11,5), years = season_years_washington)# The ‘years‘ argument specifies the year, in which the dormancy season of interest ends.
@@ -143,16 +145,21 @@ par <-   c(40, 190, 0.5, 25, 3372.8,  9900.3, 6319.5, 5.939917e13,  4, 36,  4,  
 upper <- c(41, 200, 1.0, 30, 4000.0, 10000.0, 7000.0,       6.e13, 10, 40, 10, 50.00)
 lower <- c(38, 180, 0.1, 0 , 3000.0,  9000.0, 6000.0,       5.e13,  0,  0,  0,  0.05)
 
-SEED = 123
-s=Sys.time()
-Fit_res_washington = phenologyFitter(par.guess=par, 
-                           modelfn = PhenoFlex_GDHwrapper,
-                           bloomJDays=bloom_dc$bloom_doy[which(bloom_dc$year %in% season_years_washington)],
-                           SeasonList=SeasonList, lower=lower, upper=upper,
-                           control=list(smooth=FALSE, verbose=TRUE, maxit=1000,
-                                        nb.stop.improvement=250),
-                           seed = SEED)
-Sys.time() - s
+if (rerun_simann) {
+  SEED = 123
+  s=Sys.time()
+  Fit_res_washington = phenologyFitter(par.guess=par, 
+                             modelfn = PhenoFlex_GDHwrapper,
+                             bloomJDays=bloom_dc$bloom_doy[which(bloom_dc$year %in% season_years_washington)],
+                             SeasonList=SeasonList, lower=lower, upper=upper,
+                             control=list(smooth=FALSE, verbose=TRUE, maxit=1000,
+                                          nb.stop.improvement=250),
+                             seed = SEED)
+  Sys.time() - s
+  saveRDS(Fit_res_washington, "data/sim_ann_res_washington.rds")
+} else {
+  Fit_res_washington = readRDS("data/sim_ann_res_washington.rds")
+}
 summary(Fit_res_washington)
 plot(Fit_res_washington)
 ggplot(bind_cols(year = season_years_washington, 
@@ -162,7 +169,6 @@ ggplot(bind_cols(year = season_years_washington,
   geom_point(shape=21, alpha=0.8, size=2) +
   geom_abline(slope = 1) +
   scale_fill_viridis_c(option = "H")
-saveRDS(Fit_res_washington, "data/sim_ann_res_washington.rds")
 ```
 
 ## Bootstrapping (takes a long time so not run)
@@ -211,22 +217,27 @@ predicted_bloom_Jdays_washington = bind_cols(blooming_season = season_years_wash
 ```
 
 ## Sim Ann Kyoto
-```{r}
+```{r, Sim-Ann-Kyoto}
 season_years_kyoto = c(1994:2004, 2007:2020)
 SeasonList_kyoto = genSeasonList(kyoto_DF, mrange = c(11,5), years = season_years_kyoto)# The ‘years‘ argument specifies the year, in which the dormancy season of interest ends.
 par <-   c(40, 190, 0.5, 25, 3372.8,  9900.3, 6319.5, 5.939917e13,  4, 36,  4,  1.60)
 upper <- c(41, 200, 1.0, 30, 4000.0, 10000.0, 7000.0,       6.e13, 10, 40, 10, 50.00)
 lower <- c(38, 180, 0.1, 0 , 3000.0,  9000.0, 6000.0,       5.e13,  0,  0,  0,  0.05)
-SEED = 123
-s=Sys.time()
-Fit_res_kyoto <- phenologyFitter(par.guess=par, 
-                           modelfn = PhenoFlex_GDHwrapper,
-                           bloomJDays=bloom_kyoto$bloom_doy[which(bloom_kyoto$year %in% season_years_kyoto)],
-                           SeasonList=SeasonList_kyoto, lower=lower, upper=upper,
-                           control=list(smooth=FALSE, verbose=TRUE, maxit=1000,
-                                        nb.stop.improvement=250),
-                           seed = SEED)
-Sys.time() - s
+if (rerun_simann) {
+  SEED = 123
+  s=Sys.time()
+  Fit_res_kyoto <- phenologyFitter(par.guess=par, 
+                             modelfn = PhenoFlex_GDHwrapper,
+                             bloomJDays=bloom_kyoto$bloom_doy[which(bloom_kyoto$year %in% season_years_kyoto)],
+                             SeasonList=SeasonList_kyoto, lower=lower, upper=upper,
+                             control=list(smooth=FALSE, verbose=TRUE, maxit=1000,
+                                          nb.stop.improvement=250),
+                             seed = SEED)
+  Sys.time() - s
+  saveRDS(Fit_res_kyoto, "data/sim_ann_res_kyoto.rds")
+} else {
+  Fit_res_kyoto = readRDS("data/sim_ann_res_kyoto.rds")
+}
 summary(Fit_res_kyoto)
 plot(Fit_res_kyoto)
 ggplot(bind_cols(year = season_years_kyoto, 
@@ -236,8 +247,6 @@ ggplot(bind_cols(year = season_years_kyoto,
   geom_point(shape=21, alpha=0.8, size=2) +
   geom_abline(slope = 1) +
   scale_fill_viridis_c(option = "H")
-saveRDS(Fit_res_kyoto, "data/sim_ann_res_kyoto.rds")
-Fit_res_kyoto = readRDS("data/sim_ann_res_kyoto.rds")
 ```
 
 ## PhenoFlex Kyoto using optimised params for 2019-20
@@ -269,12 +278,13 @@ predicted_bloom_Jdays_kyoto = bind_cols(blooming_season = season_years_kyoto,
 ```
 
 ## Sim Ann Liestal
-```{r}
+```{r, Sim-Ann-Liestal}
 season_years_basel = c(2002:2021) # The ‘years‘ argument specifies the year, in which the dormancy season of interest ends.
 SeasonList_basel = genSeasonList(basel_DF, mrange = c(11,5), years = season_years_basel)
 par <-   c(40, 190, 0.5, 25, 3372.8,  9900.3, 6319.5, 5.939917e13,  4, 36,  4,  1.60)
 upper <- c(41, 200, 1.0, 30, 4000.0, 10000.0, 7000.0,       6.e13, 10, 40, 10, 50.00)
 lower <- c(38, 180, 0.1, 0 , 3000.0,  9000.0, 6000.0,       5.e13,  0,  0,  0,  0.05)
+if (rerun_simann) {
 SEED = 123
 s=Sys.time()
 Fit_res_basel <- phenologyFitter(par.guess=par, 
@@ -285,6 +295,10 @@ Fit_res_basel <- phenologyFitter(par.guess=par,
                                         nb.stop.improvement=250),
                            seed = SEED)
 Sys.time()-s
+  saveRDS(Fit_res_basel, "data/sim_ann_res_basel.rds")
+} else {
+  Fit_res_basel = readRDS("data/sim_ann_res_basel.rds")
+}
 summary(Fit_res_basel)
 plot(Fit_res_basel)
 ggplot(bind_cols(year = season_years_basel, 
@@ -294,8 +308,6 @@ ggplot(bind_cols(year = season_years_basel,
   geom_point(shape=21, alpha=0.8, size=2) +
   geom_abline(slope = 1) +
   scale_fill_viridis_c(option = "H")
-saveRDS(Fit_res_basel, "data/sim_ann_res_basel.rds")
-Fit_res_basel = readRDS("data/sim_ann_res_basel.rds")
 ```
 
 ## PhenoFlex basel using optimised params for 2020-21
@@ -404,7 +416,7 @@ ggplot(basel_preds %>% filter(blooming_year %in% 2002:2011, jday <= 120), aes(x 
 ```
 
 ## plot heat accumulation for every year in Basel
-```{r}
+```{r, basel-heat-accum}
 basel_preds %>% 
   filter(jday <= 120, name=="res_z") %>% 
   ggplot(aes(x = jday, y = value, colour = factor(blooming_year), group = factor(blooming_year))) +
@@ -456,7 +468,7 @@ ggplot(basel_2022_plotdat.long, aes(x=datetime, y= value)) +
 ```
 
 ## plot heat accumulation for every year, now with 2022
-```{r}
+```{r, basel-heat-accum-w2022}
 basel_preds %>% bind_rows(basel_2022_plotdat.long) %>% 
   filter(jday <= 120, name=="res_z") %>% 
   ggplot(aes(x = jday, y = value, colour = factor(blooming_year), group = factor(blooming_year))) +
@@ -540,8 +552,9 @@ kyoto_preds %>% bind_rows(kyoto_2022_plotdat.long) %>%
 ```
 
 ## What could happen in Basel in 2022?
-Using data up until the latest available for the season 2021-2022, I replace previous years' Nov-now data with this year's, and then see what would have happened had the years continued in the way in which they did. 
-```{r}
+Using data up until the latest available for the season 2021-2022, I replace previous years' Nov-now data with this year's, and then see what would have happened had the years continued in the way in which they did.
+I also interpolate some missing hourly data at this point.
+```{r, basel-interp}
 replacement_basel_DF = basel_DF %>% filter(Month %in% c(1:5,11,12), Year >= 2001)
 replacement_basel_2022 = replacement_basel_DF %>% filter(Year==2022 | (Year==2021 & Month %in% 11:12)) %>% add_date
 replacement_basel_2022 %>% count(Month, Day) %>% count(n) # not too much missing
