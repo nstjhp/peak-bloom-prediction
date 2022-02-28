@@ -569,7 +569,7 @@ head(replacement_basel_DF_final, 10)
 ```
 
 ## Plot the counterfactual outcomes for Basel
-```{r}
+```{r, basel-counterfactual-preds}
 basel_counterfactual_preds = map_dfr(season_years_basel, ~calc_model_outputs(input_DF = replacement_basel_DF_final, blooming_year = .x, sim_ann_res = Fit_res_basel))
 basel_counterfactual_preds %>% 
   filter(jday<120, name=="res_z") %>% 
@@ -578,7 +578,10 @@ basel_counterfactual_preds %>%
   ungroup() %>% 
   ggplot(aes(x = jday, y = value, colour = factor(blooming_year), group = factor(blooming_year))) +
   geom_line(size=1) +
-  scale_colour_viridis_d(option = "H")
+  scale_colour_viridis_d(option = "H") +
+  labs(x = "Julian Day", y = "Heat accumulation (arbitrary units)", colour = "Blooming Year") +
+  guides(colour = guide_legend(ncol=2)) + 
+  theme_bw()
 ```
 
 ## Summarise Basel counterfactuals
