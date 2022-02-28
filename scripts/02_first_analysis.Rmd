@@ -38,8 +38,8 @@ div.main-container {
   margin-right: auto;
 }
 </style>
-```{r setup, results='show', message=TRUE, warning=TRUE}
-knitr::opts_chunk$set(message = FALSE, echo = TRUE)
+```{r setup, results='show', message=FALSE, warning=TRUE}
+knitr::opts_chunk$set(message = FALSE, echo = TRUE, warning=FALSE)
 options(width = 300)
 library(tidyverse)
 library(lubridate)
@@ -62,14 +62,14 @@ myflextable = function(data, ...) {
 ## Load data
 ```{r, load-RDSs}
 # hourly temps
-washingtonDC_tbl = readRDS("data/small_washingtonDC_hrly_temp.rds")
-basel_tbl = readRDS("data/small_basel_hrly_temp.rds")
-kyoto_tbl = readRDS("data/small_kyoto_hrly_temp.rds")
-vancouver_tbl = readRDS("data/small_vancouver_hrly_temp.rds")
+washingtonDC_tbl = readRDS(here::here("data","small_washingtonDC_hrly_temp.rds"))
+basel_tbl = readRDS(here::here("data","small_basel_hrly_temp.rds"))
+kyoto_tbl = readRDS(here::here("data","small_kyoto_hrly_temp.rds"))
+vancouver_tbl = readRDS(here::here("data","small_vancouver_hrly_temp.rds"))
 # blooming dates
-bloom_dc = read_csv("data/washingtondc.csv")
-bloom_liestal = read_csv("data/liestal.csv")
-bloom_kyoto = read_csv("data/kyoto.csv")
+bloom_dc = read_csv(here::here("data", "washingtondc.csv"))
+bloom_liestal = read_csv(here::here("data", "liestal.csv"))
+bloom_kyoto = read_csv(here::here("data", "kyoto.csv"))
 ```
 
 ## Add Julian days (day of year)
@@ -156,9 +156,9 @@ if (rerun_simann) {
                                           nb.stop.improvement=250),
                              seed = SEED)
   Sys.time() - s
-  saveRDS(Fit_res_washington, "data/sim_ann_res_washington.rds")
+  saveRDS(Fit_res_washington, here::here("data", "sim_ann_res_washington.rds"))
 } else {
-  Fit_res_washington = readRDS("data/sim_ann_res_washington.rds")
+  Fit_res_washington = readRDS(here::here("data","sim_ann_res_washington.rds"))
 }
 summary(Fit_res_washington)
 plot(Fit_res_washington)
@@ -234,9 +234,9 @@ if (rerun_simann) {
                                           nb.stop.improvement=250),
                              seed = SEED)
   Sys.time() - s
-  saveRDS(Fit_res_kyoto, "data/sim_ann_res_kyoto.rds")
+  saveRDS(Fit_res_kyoto, here::here("data", "sim_ann_res_kyoto.rds"))
 } else {
-  Fit_res_kyoto = readRDS("data/sim_ann_res_kyoto.rds")
+  Fit_res_kyoto = readRDS(here::here("data", "sim_ann_res_kyoto.rds"))
 }
 summary(Fit_res_kyoto)
 plot(Fit_res_kyoto)
@@ -295,9 +295,9 @@ Fit_res_basel <- phenologyFitter(par.guess=par,
                                         nb.stop.improvement=250),
                            seed = SEED)
 Sys.time()-s
-  saveRDS(Fit_res_basel, "data/sim_ann_res_basel.rds")
+  saveRDS(Fit_res_basel, here::here("data", "sim_ann_res_basel.rds"))
 } else {
-  Fit_res_basel = readRDS("data/sim_ann_res_basel.rds")
+  Fit_res_basel = readRDS(here::here("data", "sim_ann_res_basel.rds"))
 }
 summary(Fit_res_basel)
 plot(Fit_res_basel)
@@ -332,7 +332,7 @@ res_basel_2021 = PhenoFlex(temp = basel_DF$Temp[iSeason_basel_2021[[1]]],
                  )
 basel_DF[iSeason_basel_2021[[1]][1] + res_basel_2021$bloomindex,] #not quite working, seems because weather data is missing e.g. 12th Feb 2021
 # Could use this to interpolate the missing temps
-interpolate_gaps_hourly(hourtemps=basel_DF %>% filter(Year==2021),latitude=47.4814)
+# interpolate_gaps_hourly(hourtemps=basel_DF %>% filter(Year==2021),latitude=47.4814)
 
 predicted_bloom_Jdays_basel = bind_cols(blooming_season = season_years_basel,
                                              actual_JDay = Fit_res_basel$bloomJDays,
@@ -482,7 +482,7 @@ basel_preds %>% bind_rows(basel_2022_plotdat.long) %>%
 ```{r}
 kyoto_preds = map_dfr(season_years_kyoto, ~calc_model_outputs(input_DF = kyoto_DF, blooming_year = .x, sim_ann_res = Fit_res_kyoto))
   
-ggplot(kyoto_preds %>% filter(blooming_year %in% 2004:2020, jday <= 120), aes(x = jday, y = value)) + 
+ggplot(kyoto_preds %>% filter(blooming_year %in% 1994:2004, jday <= 120), aes(x = jday, y = value)) + 
   geom_line() + 
   facet_grid(name ~ blooming_year, scales = "free")# +
  # scale_x_datetime(breaks = "1 month")
