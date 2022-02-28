@@ -86,11 +86,19 @@ basel_tbl = basel_tbl %>%
 ## Chilling calcs require DF
 ```{r}
 washington_DF = washingtonDC_tbl %>% select(Year, Month=mon, Day=day, Hour, Temp, JDay) %>% as.data.frame()
-washington_chilling = chilling(washington_DF, 305, 60)
 kyoto_DF = kyoto_tbl %>% select(Year, Month=mon, Day=day, Hour, Temp, JDay) %>% as.data.frame()
-kyoto_chilling = chilling(kyoto_DF, 305, 60)
 basel_DF = basel_tbl %>% select(Year, Month=mon, Day=day, Hour, Temp, JDay) %>% as.data.frame()
+```
+
+The `chilling` function calculates Chill Portions using Dynamic model default parameters. 
+As the original publication said that these parameters should be cultivar and location specific, this is just for comparative interest and to see where the most missing data is.
+```{r}
+washington_chilling = chilling(washington_DF, 305, 60)
+kyoto_chilling = chilling(kyoto_DF, 305, 60)
 basel_chilling = chilling(basel_DF, 305, 60)
+bind_rows(tail(washington_chilling,5) %>% add_column(Location = "Washington DC", .before = 1),
+          tail(basel_chilling, 5) %>% add_column(Location = "Basel, CH", .before = 1),
+          tail(kyoto_chilling, 5) %>% add_column(Location = "Kyoto, JP", .before = 1))
 ```
 
 ## PhenoFlex
@@ -128,8 +136,8 @@ ggplot(data=seasontemps[1:DBreakDay,],aes(x=Date,y=z)) +
 ## Sim Ann Washington DC
 ```{r}
 # years with sufficient data
-season_years = c(1938:1945, 1947:1965, 1974:2021)
-SeasonList = genSeasonList(washington_DF, mrange = c(11,5), years = season_years)# The ‘years‘ argument specifies the year, in which the dormancy season of interest ends.
+season_years_washington = c(1938:1945, 1947:1965, 1974:2021)
+SeasonList = genSeasonList(washington_DF, mrange = c(11,5), years = season_years_washington)# The ‘years‘ argument specifies the year, in which the dormancy season of interest ends.
 # PhenoFlex default param ranges
 par <-   c(40, 190, 0.5, 25, 3372.8,  9900.3, 6319.5, 5.939917e13,  4, 36,  4,  1.60)
 upper <- c(41, 200, 1.0, 30, 4000.0, 10000.0, 7000.0,       6.e13, 10, 40, 10, 50.00)
@@ -137,23 +145,24 @@ lower <- c(38, 180, 0.1, 0 , 3000.0,  9000.0, 6000.0,       5.e13,  0,  0,  0,  
 
 SEED = 123
 s=Sys.time()
-Fit_res = phenologyFitter(par.guess=par, 
+Fit_res_washington = phenologyFitter(par.guess=par, 
                            modelfn = PhenoFlex_GDHwrapper,
-                           bloomJDays=bloom_dc$bloom_doy[which(bloom_dc$year %in% season_years)],
+                           bloomJDays=bloom_dc$bloom_doy[which(bloom_dc$year %in% season_years_washington)],
                            SeasonList=SeasonList, lower=lower, upper=upper,
                            control=list(smooth=FALSE, verbose=TRUE, maxit=1000,
                                         nb.stop.improvement=250),
                            seed = SEED)
 Sys.time() - s
-summary(Fit_res)
-plot(Fit_res)
-ggplot(bind_cols(year = season_years, 
-                 actual=Fit_res$bloomJDays, 
-                 predicted=Fit_res$pbloomJDays), 
+summary(Fit_res_washington)
+plot(Fit_res_washington)
+ggplot(bind_cols(year = season_years_washington, 
+                 actual=Fit_res_washington$bloomJDays, 
+                 predicted=Fit_res_washington$pbloomJDays), 
        aes(actual, predicted, fill=year)) + 
   geom_point(shape=21, alpha=0.8, size=2) +
   geom_abline(slope = 1) +
   scale_fill_viridis_c(option = "H")
+saveRDS(Fit_res_washington, "data/sim_ann_res_washington.rds")
 ```
 
 ## Bootstrapping (takes a long time so not run)
@@ -167,7 +176,7 @@ plot(Fit_res.boot)
 ```
 
 ## bloom prediction fn using default parameters for models
-```{r}
+```{r, eval=FALSE}
 bloom_prediction3(washington_DF,  c(40, 40.1), c(191.3, 1000), permutations = TRUE)
 # NB Order is different from PhenoFlex pars output to Dynamic_Model input
 #dput(c(Fit_res$par[5:8], Fit_res$par[12], Fit_res$par[9] + 273))
@@ -179,25 +188,26 @@ plot(Dynamic_Model(washington_DF$Temp[675940:680281], summ = TRUE, 3371.43507242
 iSeason_DC_2021 = genSeason(washington_DF, years = c(2021))
 res_DC_2021 = PhenoFlex(temp = washington_DF$Temp[iSeason_DC_2021[[1]]],
                  times = c(1: length(washington_DF$Temp[iSeason_DC_2021[[1]]])),
-                 zc = Fit_res$par[2],
+                 zc = Fit_res_washington$par[2],
                  stopatzc = TRUE,
-                 yc = Fit_res$par[1],
+                 yc = Fit_res_washington$par[1],
                  basic_output = FALSE,
-                 s1 = Fit_res$par[3],
-                 Tu = Fit_res$par[4],
-                 E0 = Fit_res$par[5],
-                 E1 = Fit_res$par[6],
-                 A0 = Fit_res$par[7],
-                 A1 = Fit_res$par[8],
-                 Tf = Fit_res$par[9],
-                 Tc = Fit_res$par[10],
-                 Tb = Fit_res$par[11],
-                 slope = Fit_res$par[12],
+                 s1 = Fit_res_washington$par[3],
+                 Tu = Fit_res_washington$par[4],
+                 E0 = Fit_res_washington$par[5],
+                 E1 = Fit_res_washington$par[6],
+                 A0 = Fit_res_washington$par[7],
+                 A1 = Fit_res_washington$par[8],
+                 Tf = Fit_res_washington$par[9],
+                 Tc = Fit_res_washington$par[10],
+                 Tb = Fit_res_washington$par[11],
+                 slope = Fit_res_washington$par[12],
                  )
 washington_DF[iSeason_DC_2021[[1]][1] + res_DC_2021$bloomindex,]
-
-predicted_bloom_Jdays_washington = chillR:::predictBloomDays(par = Fit_res$par, SeasonList = Fit_res$SeasonList, 
-        modelfn = Fit_res$modelfn)
+predicted_bloom_Jdays_washington = bind_cols(blooming_season = season_years_washington,
+                                             actual_JDay = Fit_res_washington$bloomJDays,
+                                             predicted_JDay = Fit_res_washington$pbloomJDays) %>%
+                                   mutate(difference = actual_JDay - predicted_JDay)
 ```
 
 ## Sim Ann Kyoto
