@@ -71,13 +71,14 @@ korea = read_csv("data/south_korea.csv")
 ## Check quantiles especially
 ```{r}
 Hmisc::describe(dc)
-head(ch)
+head(swiss)
 tail(kyoto)
 quantile(kyoto$bloom_doy, probs = c(0, 0.1, 0.25, 0.4, 0.5, 0.6, 0.75, 0.9, 1))
-quantile(ch$bloom_doy, probs = c(0, 0.1, 0.25, 0.4, 0.5, 0.6, 0.75, 0.9, 1))
+quantile(liestal$bloom_doy, probs = c(0, 0.1, 0.25, 0.4, 0.5, 0.6, 0.75, 0.9, 1))
 quantile(dc$bloom_doy, probs = c(0, 0.1, 0.25, 0.4, 0.5, 0.6, 0.75, 0.9, 1))
 ```
 
+## Blooming time in Liestal
 ```{r}
 liestal %>% 
   ggplot(aes(x = year, y = bloom_doy)) +
@@ -86,6 +87,7 @@ liestal %>%
   labs(x = "Year", y = "Peak bloom (days since Jan 1st)")
 ```
 
+## Blooming time all over Switzerland
 ```{r}
 swiss %>% 
   ggplot(aes(x = year, y = bloom_doy, colour = location)) +
@@ -96,7 +98,7 @@ swiss %>%
 ```
 
 ## Climate data
-```{r}
+```{r, eval=FALSE}
 #' @param stationid the `rnoaa` station id (see [ghcnd_stations()]) # go to https://www1.ncdc.noaa.gov/pub/data/ghcn/daily/ghcnd-stations.txt if this Timeouts: Error in curl::curl_fetch_disk(x$url$url, x$disk, handle = x$url$handle) : Timeout was reached: [ftp.ncdc.noaa.gov] Connection timed out after 10001 milliseconds
 #' @return a data frame with columns
 #'   - `year` ... the year of the observations
@@ -155,19 +157,29 @@ Data format is:
  - MISSING VALUE: -9999
  
 ```{r}
-stations <- isd_stations()
+stations <- isd_stations(refresh = TRUE)
 wloc = stations %>% filter(str_detect(station_name, "BASEL|RONALD R|KYOTO|VANCOUVER INTL"),
                      str_detect(end, "2022"))
+wloc
   #  usaf   wban  station_name                     ctry  state icao     lat     lon elev_m    begin      end
   # <chr>  <chr> <chr>                            <chr> <chr> <chr>  <dbl>   <dbl>  <dbl>    <dbl>    <dbl>
   # 066010 99999 BASEL-BINNINGEN                  SZ    ""    ""      47.6    7.58  317   19901101 20220210
   # 477590 99999 KYOTO                            JA    ""    ""      35.0  136.     46.5 19451031 20220210
   # 718920 99999 VANCOUVER INTL                   CA    ""    "CYVR"  49.2 -123.      4.3 19550702 20220210
   # 724050 13743 RONALD REAGAN WASHINGTON NATL AP US    "VA"  "KDCA"  38.8  -77.0     4.1 19360901 20220211
+# As of 2022-02-28
+#   usaf   wban  station_name                     ctry  state icao     lat     lon elev_m    begin      end
+#   <chr>  <chr> <chr>                            <chr> <chr> <chr>  <dbl>   <dbl>  <dbl>    <dbl>    <dbl>
+#   066010 99999 BASEL-BINNINGEN                  SZ    ""    ""      47.6    7.58  317   19901101 20220225
+#   477590 99999 KYOTO                            JA    ""    ""      35.0  136.     46.5 19451031 20220225
+#   718920 99999 VANCOUVER INTL                   CA    ""    "CYVR"  49.2 -123.      4.3 19550702 20220225
+#   724050 13743 RONALD REAGAN WASHINGTON NATL AP US    "VA"  "KDCA"  38.8  -77.0     4.1 19360901 20220226
 ```
 
-```{r}
-
+## Various functions hacked together from `rnoaa`
+So I can get the ISD Lite (hourly) data and avoid timeouts Ineeded to change some of these functions below.
+Then I will save the data as RDS files and work with them from now on.
+```{r, my-isd-functions}
 my_isd_remote = function (usaf, wban, year) 
 {
     file.path(rnoaa:::isdbase(), "isd-lite", year, sprintf("%s-%s-%s%s", usaf, 
@@ -228,8 +240,9 @@ my_isd = function(usaf, wban, year, overwrite = TRUE, cleanup = TRUE,
 ```
 
 ## Get Basel weather data
+NB Need to delete any cached files first otherwise this doesn't work
 ```{r}
-my_isd(usaf = "066010", wban = "99999", year=1990)
+# my_isd(usaf = "066010", wban = "99999", year=1990)
 
 basel_years = year(ymd(wloc %>% filter(ctry=="SZ") %>% pull(begin))):year(ymd(wloc %>% filter(ctry=="SZ") %>% pull(end)))
 basel_list = vector(mode = "list", length = length(basel_years))
@@ -284,7 +297,7 @@ washingtonDC_tbl = washingtonDC_tbl %>% mutate(datetime = make_datetime(yr, mon,
 ggplot(washingtonDC_tbl, aes(x=datetime, y=temp)) + geom_line() + facet_wrap(~yr, ncol=6, scales = "free_x")
 ```
 
-## Get Washington DC weather data
+## Get Vancouver weather data
 ```{r}
 vancouver_years = year(ymd(wloc %>% filter(ctry=="CA") %>% pull(begin))):year(ymd(wloc %>% filter(ctry=="CA") %>% pull(end)))
 vancouver_list = vector(mode = "list", length = length(vancouver_years))
@@ -302,10 +315,10 @@ vancouver_tbl = vancouver_tbl %>% mutate(datetime = make_datetime(yr, mon, day, 
 ggplot(vancouver_tbl, aes(x=datetime, y=temp)) + geom_line() + facet_wrap(~yr, ncol=6, scales = "free_x")
 ```
 
+## Save these weather data for working with rather than re-downloading everything
 ```{r}
 saveRDS(basel_tbl, "data/small_basel_hrly_temp.rds")
 saveRDS(kyoto_tbl, "data/small_kyoto_hrly_temp.rds")
 saveRDS(washingtonDC_tbl, "data/small_washingtonDC_hrly_temp.rds")
 saveRDS(vancouver_tbl, "data/small_vancouver_hrly_temp.rds")
 ```
-
