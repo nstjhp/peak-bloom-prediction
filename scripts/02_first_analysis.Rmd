@@ -237,6 +237,7 @@ ggplot(bind_cols(year = season_years_kyoto,
   geom_abline(slope = 1) +
   scale_fill_viridis_c(option = "H")
 saveRDS(Fit_res_kyoto, "data/sim_ann_res_kyoto.rds")
+Fit_res_kyoto = readRDS("data/sim_ann_res_kyoto.rds")
 ```
 
 ## PhenoFlex Kyoto using optimised params for 2019-20
@@ -261,8 +262,10 @@ res_kyoto_2020 = PhenoFlex(temp = kyoto_DF$Temp[iSeason_kyoto_2020[[1]]],
                  )
 kyoto_DF[iSeason_kyoto_2020[[1]][1] + res_kyoto_2020$bloomindex,]
 
-predicted_bloom_Jdays_kyoto = chillR:::predictBloomDays(par = Fit_res_kyoto$par, SeasonList = Fit_res_kyoto$SeasonList, 
-        modelfn = Fit_res_kyoto$modelfn)
+predicted_bloom_Jdays_kyoto = bind_cols(blooming_season = season_years_kyoto,
+                                             actual_JDay = Fit_res_kyoto$bloomJDays,
+                                             predicted_JDay = Fit_res_kyoto$pbloomJDays) %>%
+                              mutate(difference = actual_JDay - predicted_JDay)
 ```
 
 ## Sim Ann Liestal
@@ -292,6 +295,7 @@ ggplot(bind_cols(year = season_years_basel,
   geom_abline(slope = 1) +
   scale_fill_viridis_c(option = "H")
 saveRDS(Fit_res_basel, "data/sim_ann_res_basel.rds")
+Fit_res_basel = readRDS("data/sim_ann_res_basel.rds")
 ```
 
 ## PhenoFlex basel using optimised params for 2020-21
@@ -318,10 +322,10 @@ basel_DF[iSeason_basel_2021[[1]][1] + res_basel_2021$bloomindex,] #not quite wor
 # Could use this to interpolate the missing temps
 interpolate_gaps_hourly(hourtemps=basel_DF %>% filter(Year==2021),latitude=47.4814)
 
-predicted_bloom_Jdays_basel = chillR:::predictBloomDays(par = Fit_res_basel$par, SeasonList = Fit_res_basel$SeasonList, 
-        modelfn = Fit_res_basel$modelfn)
-# same as
-predicted_bloom_Jdays_basel = Fit_res_basel$pbloomJDays
+predicted_bloom_Jdays_basel = bind_cols(blooming_season = season_years_basel,
+                                             actual_JDay = Fit_res_basel$bloomJDays,
+                                             predicted_JDay = Fit_res_basel$pbloomJDays) %>%
+                              mutate(difference = actual_JDay - predicted_JDay)
 
 # x (precursor to the dormancy-breaking factor), 
 # y (the dormancy-breaking factor; or Chill Portion), 
