@@ -45,6 +45,7 @@ library(tidyverse)
 library(lubridate)
 library(flextable)
 library(chillR)
+library(gghighlight)
 
 # Functions
 myflextable = function(data, ...) {
@@ -78,7 +79,7 @@ kyoto_tbl = kyoto_tbl %>%
   mutate(JDay = yday(datetime)) %>% 
   rename(Year=yr, Hour=hr, Temp=temp)
 basel_tbl = basel_tbl %>% 
-  mutate(JDay = yday(date)) %>% 
+  mutate(JDay = yday(datetime)) %>% 
   rename(Year=yr, Hour=hr, Temp=temp)
 ```
 
@@ -95,6 +96,8 @@ basel_chilling = chilling(basel_DF, 305, 60)
 ## PhenoFlex
 ```{r}
 iSeason_DC = genSeason(washington_DF, years = c(2009))
+yc = 40
+zc = 190
 res_DC = PhenoFlex(temp=washington_DF$Temp[iSeason_DC[[1]]],
                  times=c(1: length(washington_DF$Temp[iSeason_DC[[1]]])),
                  zc=zc, stopatzc=TRUE, yc=yc, basic_output=FALSE)
@@ -122,21 +125,26 @@ ggplot(data=seasontemps[1:DBreakDay,],aes(x=Date,y=z)) +
   labs(title="Heat (z) accumulation")
 ```
 
-## Sim Ann
+## Sim Ann Washington DC
 ```{r}
+# years with sufficient data
 season_years = c(1938:1945, 1947:1965, 1974:2021)
-SeasonList = genSeasonList(washington_DF, years = season_years)
+SeasonList = genSeasonList(washington_DF, mrange = c(11,5), years = season_years)# The ‘years‘ argument specifies the year, in which the dormancy season of interest ends.
+# PhenoFlex default param ranges
 par <-   c(40, 190, 0.5, 25, 3372.8,  9900.3, 6319.5, 5.939917e13,  4, 36,  4,  1.60)
 upper <- c(41, 200, 1.0, 30, 4000.0, 10000.0, 7000.0,       6.e13, 10, 40, 10, 50.00)
 lower <- c(38, 180, 0.1, 0 , 3000.0,  9000.0, 6000.0,       5.e13,  0,  0,  0,  0.05)
+
+SEED = 123
 s=Sys.time()
-Fit_res <- phenologyFitter(par.guess=par, 
+Fit_res = phenologyFitter(par.guess=par, 
                            modelfn = PhenoFlex_GDHwrapper,
                            bloomJDays=bloom_dc$bloom_doy[which(bloom_dc$year %in% season_years)],
                            SeasonList=SeasonList, lower=lower, upper=upper,
                            control=list(smooth=FALSE, verbose=TRUE, maxit=1000,
-                                        nb.stop.improvement=250))
-Sys.time()-s
+                                        nb.stop.improvement=250),
+                           seed = SEED)
+Sys.time() - s
 summary(Fit_res)
 plot(Fit_res)
 ggplot(bind_cols(year = season_years, 
@@ -148,8 +156,8 @@ ggplot(bind_cols(year = season_years,
   scale_fill_viridis_c(option = "H")
 ```
 
-## Bootstrapping
-```{r}
+## Bootstrapping (takes a long time so not run)
+```{r, eval=FALSE}
 Fit_res.boot <- bootstrap.phenologyFit(Fit_res, boot.R=10,
                                        control=list(smooth=FALSE, verbose=TRUE, maxit=10,
                                                     nb.stop.improvement=5),
@@ -188,6 +196,278 @@ res_DC_2021 = PhenoFlex(temp = washington_DF$Temp[iSeason_DC_2021[[1]]],
                  )
 washington_DF[iSeason_DC_2021[[1]][1] + res_DC_2021$bloomindex,]
 
-predicted_bloom_Jdays = chillR:::predictBloomDays(par = Fit_res$par, SeasonList = Fit_res$SeasonList, 
+predicted_bloom_Jdays_washington = chillR:::predictBloomDays(par = Fit_res$par, SeasonList = Fit_res$SeasonList, 
         modelfn = Fit_res$modelfn)
+```
+
+## Sim Ann Kyoto
+```{r}
+season_years_kyoto = c(1994:2004, 2007:2020)
+SeasonList_kyoto = genSeasonList(kyoto_DF, mrange = c(11,5), years = season_years_kyoto)# The ‘years‘ argument specifies the year, in which the dormancy season of interest ends.
+par <-   c(40, 190, 0.5, 25, 3372.8,  9900.3, 6319.5, 5.939917e13,  4, 36,  4,  1.60)
+upper <- c(41, 200, 1.0, 30, 4000.0, 10000.0, 7000.0,       6.e13, 10, 40, 10, 50.00)
+lower <- c(38, 180, 0.1, 0 , 3000.0,  9000.0, 6000.0,       5.e13,  0,  0,  0,  0.05)
+SEED = 123
+s=Sys.time()
+Fit_res_kyoto <- phenologyFitter(par.guess=par, 
+                           modelfn = PhenoFlex_GDHwrapper,
+                           bloomJDays=bloom_kyoto$bloom_doy[which(bloom_kyoto$year %in% season_years_kyoto)],
+                           SeasonList=SeasonList_kyoto, lower=lower, upper=upper,
+                           control=list(smooth=FALSE, verbose=TRUE, maxit=1000,
+                                        nb.stop.improvement=250),
+                           seed = SEED)
+Sys.time() - s
+summary(Fit_res_kyoto)
+plot(Fit_res_kyoto)
+ggplot(bind_cols(year = season_years_kyoto, 
+                 actual=Fit_res_kyoto$bloomJDays, 
+                 predicted=Fit_res_kyoto$pbloomJDays), 
+       aes(actual, predicted, fill=year)) + 
+  geom_point(shape=21, alpha=0.8, size=2) +
+  geom_abline(slope = 1) +
+  scale_fill_viridis_c(option = "H")
+saveRDS(Fit_res_kyoto, "data/sim_ann_res_kyoto.rds")
+```
+
+## PhenoFlex Kyoto using optimised params for 2019-20
+```{r}
+iSeason_kyoto_2020 = genSeason(kyoto_DF, mrange = c(11,5), years = c(2020))
+res_kyoto_2020 = PhenoFlex(temp = kyoto_DF$Temp[iSeason_kyoto_2020[[1]]],
+                 times = c(1: length(kyoto_DF$Temp[iSeason_kyoto_2020[[1]]])),
+                 zc = Fit_res_kyoto$par[2],
+                 stopatzc = TRUE,
+                 yc = Fit_res_kyoto$par[1],
+                 basic_output = FALSE,
+                 s1 = Fit_res_kyoto$par[3],
+                 Tu = Fit_res_kyoto$par[4],
+                 E0 = Fit_res_kyoto$par[5],
+                 E1 = Fit_res_kyoto$par[6],
+                 A0 = Fit_res_kyoto$par[7],
+                 A1 = Fit_res_kyoto$par[8],
+                 Tf = Fit_res_kyoto$par[9],
+                 Tc = Fit_res_kyoto$par[10],
+                 Tb = Fit_res_kyoto$par[11],
+                 slope = Fit_res_kyoto$par[12],
+                 )
+kyoto_DF[iSeason_kyoto_2020[[1]][1] + res_kyoto_2020$bloomindex,]
+
+predicted_bloom_Jdays_kyoto = chillR:::predictBloomDays(par = Fit_res_kyoto$par, SeasonList = Fit_res_kyoto$SeasonList, 
+        modelfn = Fit_res_kyoto$modelfn)
+```
+
+## Sim Ann Liestal
+```{r}
+season_years_basel = c(2002:2021) # The ‘years‘ argument specifies the year, in which the dormancy season of interest ends.
+SeasonList_basel = genSeasonList(basel_DF, mrange = c(11,5), years = season_years_basel)
+par <-   c(40, 190, 0.5, 25, 3372.8,  9900.3, 6319.5, 5.939917e13,  4, 36,  4,  1.60)
+upper <- c(41, 200, 1.0, 30, 4000.0, 10000.0, 7000.0,       6.e13, 10, 40, 10, 50.00)
+lower <- c(38, 180, 0.1, 0 , 3000.0,  9000.0, 6000.0,       5.e13,  0,  0,  0,  0.05)
+SEED = 123
+s=Sys.time()
+Fit_res_basel <- phenologyFitter(par.guess=par, 
+                           modelfn = PhenoFlex_GDHwrapper,
+                           bloomJDays=bloom_liestal$bloom_doy[which(bloom_liestal$year %in% season_years_basel)],
+                           SeasonList=SeasonList_basel, lower=lower, upper=upper,
+                           control=list(smooth=FALSE, verbose=TRUE, maxit=1000,
+                                        nb.stop.improvement=250),
+                           seed = SEED)
+Sys.time()-s
+summary(Fit_res_basel)
+plot(Fit_res_basel)
+ggplot(bind_cols(year = season_years_basel, 
+                 actual=Fit_res_basel$bloomJDays, 
+                 predicted=Fit_res_basel$pbloomJDays), 
+       aes(actual, predicted, fill=year)) + 
+  geom_point(shape=21, alpha=0.8, size=2) +
+  geom_abline(slope = 1) +
+  scale_fill_viridis_c(option = "H")
+saveRDS(Fit_res_basel, "data/sim_ann_res_basel.rds")
+```
+
+## PhenoFlex basel using optimised params for 2020-21
+```{r}
+iSeason_basel_2021 = genSeason(basel_DF, mrange = c(11,5), years = c(2021))
+res_basel_2021 = PhenoFlex(temp = basel_DF$Temp[iSeason_basel_2021[[1]]],
+                 times = c(1: length(basel_DF$Temp[iSeason_basel_2021[[1]]])),
+                 zc = Fit_res_basel$par[2],
+                 stopatzc = TRUE,
+                 yc = Fit_res_basel$par[1],
+                 basic_output = FALSE,
+                 s1 = Fit_res_basel$par[3],
+                 Tu = Fit_res_basel$par[4],
+                 E0 = Fit_res_basel$par[5],
+                 E1 = Fit_res_basel$par[6],
+                 A0 = Fit_res_basel$par[7],
+                 A1 = Fit_res_basel$par[8],
+                 Tf = Fit_res_basel$par[9],
+                 Tc = Fit_res_basel$par[10],
+                 Tb = Fit_res_basel$par[11],
+                 slope = Fit_res_basel$par[12],
+                 )
+basel_DF[iSeason_basel_2021[[1]][1] + res_basel_2021$bloomindex,] #not quite working, seems because weather data is missing e.g. 12th Feb 2021
+# Could use this to interpolate the missing temps
+interpolate_gaps_hourly(hourtemps=basel_DF %>% filter(Year==2021),latitude=47.4814)
+
+predicted_bloom_Jdays_basel = chillR:::predictBloomDays(par = Fit_res_basel$par, SeasonList = Fit_res_basel$SeasonList, 
+        modelfn = Fit_res_basel$modelfn)
+# same as
+predicted_bloom_Jdays_basel = Fit_res_basel$pbloomJDays
+
+# x (precursor to the dormancy-breaking factor), 
+# y (the dormancy-breaking factor; or Chill Portion), 
+# z (heat accumulation) 
+# xs (the ratio of the formation to the destruction rate of x) over time
+basel_2021_plotdat = tibble(
+  datetime = make_datetime(year = basel_DF$Year[iSeason_basel_2021[[1]]], 
+                           month = basel_DF$Month[iSeason_basel_2021[[1]]],
+                           day = basel_DF$Day[iSeason_basel_2021[[1]]],
+                           hour = basel_DF$Hour[iSeason_basel_2021[[1]]]),
+  jday = basel_DF$JDay[iSeason_basel_2021[[1]]],
+  temp = basel_DF$Temp[iSeason_basel_2021[[1]]],
+  times = c(1:length(basel_DF$Temp[iSeason_basel_2021[[1]]])),
+  res_x = res_basel_2021[[1]],
+  res_y = res_basel_2021[[2]],
+  res_z = res_basel_2021[[3]],
+  res_xs = res_basel_2021[[4]]
+)
+basel_2021_plotdat.long = pivot_longer(basel_2021_plotdat, c(temp, starts_with("res_")))
+ggplot(basel_2021_plotdat.long, aes(x=datetime, y= value)) + 
+  geom_line() + 
+  facet_wrap(~name, scales = "free_y", ncol=1) +
+  scale_x_datetime(breaks = "1 month")
+#unique(unlist(map(Fit_res_basel$SeasonList, ~pluck(. , "Year"))))
+```
+
+## function to run PhenoFlex for every season to get the Chill Portions and heat accumulation
+```{r}
+calc_model_outputs = function (input_DF, blooming_year, sim_ann_res) {
+  iSeason = genSeason(input_DF, mrange = c(11,5), years = blooming_year)
+  predicted_res = PhenoFlex(temp = input_DF$Temp[iSeason[[1]]],
+                 times = c(1: length(input_DF$Temp[iSeason[[1]]])),
+                 zc = sim_ann_res$par[2],
+                 stopatzc = TRUE,
+                 yc = sim_ann_res$par[1],
+                 basic_output = FALSE,
+                 s1 = sim_ann_res$par[3],
+                 Tu = sim_ann_res$par[4],
+                 E0 = sim_ann_res$par[5],
+                 E1 = sim_ann_res$par[6],
+                 A0 = sim_ann_res$par[7],
+                 A1 = sim_ann_res$par[8],
+                 Tf = sim_ann_res$par[9],
+                 Tc = sim_ann_res$par[10],
+                 Tb = sim_ann_res$par[11],
+                 slope = sim_ann_res$par[12],
+                 )
+  
+  plotdat = tibble(
+    blooming_year = blooming_year,
+    datetime = make_datetime(year = input_DF$Year[iSeason[[1]]], 
+                             month = input_DF$Month[iSeason[[1]]],
+                             day = input_DF$Day[iSeason[[1]]],
+                             hour = input_DF$Hour[iSeason[[1]]]),
+    jday = input_DF$JDay[iSeason[[1]]],
+    temp = input_DF$Temp[iSeason[[1]]],
+    times = c(1:length(input_DF$Temp[iSeason[[1]]])),
+    res_x =  predicted_res[[1]],
+    res_y =  predicted_res[[2]],
+    res_z =  predicted_res[[3]],
+    res_xs = predicted_res[[4]]
+  )
+  plotdat.long = pivot_longer(plotdat, c(temp, starts_with("res_")))
+  return(plotdat.long)
+}
+```
+
+## Get the outputs for Basel using optimised params
+```{r}
+basel_preds = map_dfr(season_years_basel, ~calc_model_outputs(input_DF = basel_DF, blooming_year = .x, sim_ann_res = Fit_res_basel))
+  
+ggplot(basel_preds %>% filter(blooming_year %in% 2002:2011, jday <= 120), aes(x = jday, y = value)) + 
+  geom_line() + 
+  facet_grid(name ~ blooming_year, scales = "free")# +
+ # scale_x_datetime(breaks = "1 month")
+```
+
+## plot heat accumulation for every year in Basel
+```{r}
+basel_preds %>% 
+  filter(jday <= 120, name=="res_z") %>% 
+  ggplot(aes(x = jday, y = value, colour = factor(blooming_year), group = factor(blooming_year))) +
+  geom_line() +
+  scale_colour_viridis_d(option = "H") + 
+  ylim(0.01, NA)# cheeky hack to remove after blooming 0 values
+```
+
+## 2022 season's weather data
+```{r}
+iSeason_basel_2022 = genSeason(basel_DF, mrange = c(11,5), years = c(2022))
+res_basel_2022 = PhenoFlex(temp = basel_DF$Temp[iSeason_basel_2022[[1]]],
+                 times = c(1: length(basel_DF$Temp[iSeason_basel_2022[[1]]])),
+                 zc = Fit_res_basel$par[2],
+                 stopatzc = TRUE,
+                 yc = Fit_res_basel$par[1],
+                 basic_output = FALSE,
+                 s1 = Fit_res_basel$par[3],
+                 Tu = Fit_res_basel$par[4],
+                 E0 = Fit_res_basel$par[5],
+                 E1 = Fit_res_basel$par[6],
+                 A0 = Fit_res_basel$par[7],
+                 A1 = Fit_res_basel$par[8],
+                 Tf = Fit_res_basel$par[9],
+                 Tc = Fit_res_basel$par[10],
+                 Tb = Fit_res_basel$par[11],
+                 slope = Fit_res_basel$par[12],
+                 )
+
+basel_2022_plotdat = tibble(
+  blooming_year = 2022,
+  datetime = make_datetime(year = basel_DF$Year[iSeason_basel_2022[[1]]], 
+                           month = basel_DF$Month[iSeason_basel_2022[[1]]],
+                           day = basel_DF$Day[iSeason_basel_2022[[1]]],
+                           hour = basel_DF$Hour[iSeason_basel_2022[[1]]]),
+  jday = basel_DF$JDay[iSeason_basel_2022[[1]]],
+  temp = basel_DF$Temp[iSeason_basel_2022[[1]]],
+  times = c(1:length(basel_DF$Temp[iSeason_basel_2022[[1]]])),
+  res_x = res_basel_2022[[1]],
+  res_y = res_basel_2022[[2]],
+  res_z = res_basel_2022[[3]],
+  res_xs = res_basel_2022[[4]]
+)
+basel_2022_plotdat.long = pivot_longer(basel_2022_plotdat, c(temp, starts_with("res_")))
+ggplot(basel_2022_plotdat.long, aes(x=datetime, y= value)) + 
+  geom_line() + 
+  facet_wrap(~name, scales = "free_y", ncol=1) +
+  scale_x_datetime(breaks = "1 month")
+```
+
+## plot heat accumulation for every year, now with 2022
+```{r}
+basel_preds %>% bind_rows(basel_2022_plotdat.long) %>% 
+  filter(jday <= 120, name=="res_z") %>% 
+  ggplot(aes(x = jday, y = value, colour = factor(blooming_year), group = factor(blooming_year))) +
+  geom_line(size=1) +
+  scale_colour_viridis_d(option = "H") + 
+  gghighlight(factor(blooming_year)=="2022", unhighlighted_params = list(colour = NULL, alpha = 0.3)) +
+  ylim(0.01, NA)# cheeky hack to remove after blooming 0 values 
+```
+
+## Get the outputs for Kyoto using optimised params
+```{r}
+kyoto_preds = map_dfr(season_years_kyoto, ~calc_model_outputs(input_DF = kyoto_DF, blooming_year = .x, sim_ann_res = Fit_res_kyoto))
+  
+ggplot(kyoto_preds %>% filter(blooming_year %in% 2004:2020, jday <= 120), aes(x = jday, y = value)) + 
+  geom_line() + 
+  facet_grid(name ~ blooming_year, scales = "free")# +
+ # scale_x_datetime(breaks = "1 month")
+```
+
+## plot heat accumulation for every year in Kyoto
+```{r}
+kyoto_preds %>% 
+  filter(jday <= 120, name=="res_z") %>% 
+  ggplot(aes(x = jday, y = value, colour = factor(blooming_year), group = factor(blooming_year))) +
+  geom_line() +
+  scale_colour_viridis_d(option = "H") + 
+  ylim(0.01, NA)# cheeky hack to remove after blooming 0 values
 ```
