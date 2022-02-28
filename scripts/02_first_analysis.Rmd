@@ -485,3 +485,111 @@ kyoto_preds %>%
   scale_colour_viridis_d(option = "H") + 
   ylim(0.01, NA)# cheeky hack to remove after blooming 0 values
 ```
+
+## 2022 season's weather data for Kyoto
+```{r}
+iSeason_kyoto_2022 = genSeason(kyoto_DF, mrange = c(11,5), years = c(2022))
+res_kyoto_2022 = PhenoFlex(temp = kyoto_DF$Temp[iSeason_kyoto_2022[[1]]],
+                 times = c(1: length(kyoto_DF$Temp[iSeason_kyoto_2022[[1]]])),
+                 zc = Fit_res_kyoto$par[2],
+                 stopatzc = TRUE,
+                 yc = Fit_res_kyoto$par[1],
+                 basic_output = FALSE,
+                 s1 = Fit_res_kyoto$par[3],
+                 Tu = Fit_res_kyoto$par[4],
+                 E0 = Fit_res_kyoto$par[5],
+                 E1 = Fit_res_kyoto$par[6],
+                 A0 = Fit_res_kyoto$par[7],
+                 A1 = Fit_res_kyoto$par[8],
+                 Tf = Fit_res_kyoto$par[9],
+                 Tc = Fit_res_kyoto$par[10],
+                 Tb = Fit_res_kyoto$par[11],
+                 slope = Fit_res_kyoto$par[12],
+                 )
+
+kyoto_2022_plotdat = tibble(
+  blooming_year = 2022,
+  datetime = make_datetime(year = kyoto_DF$Year[iSeason_kyoto_2022[[1]]], 
+                           month = kyoto_DF$Month[iSeason_kyoto_2022[[1]]],
+                           day = kyoto_DF$Day[iSeason_kyoto_2022[[1]]],
+                           hour = kyoto_DF$Hour[iSeason_kyoto_2022[[1]]]),
+  jday = kyoto_DF$JDay[iSeason_kyoto_2022[[1]]],
+  temp = kyoto_DF$Temp[iSeason_kyoto_2022[[1]]],
+  times = c(1:length(kyoto_DF$Temp[iSeason_kyoto_2022[[1]]])),
+  res_x = res_kyoto_2022[[1]],
+  res_y = res_kyoto_2022[[2]],
+  res_z = res_kyoto_2022[[3]],
+  res_xs = res_kyoto_2022[[4]]
+)
+kyoto_2022_plotdat.long = pivot_longer(kyoto_2022_plotdat, c(temp, starts_with("res_")))
+ggplot(kyoto_2022_plotdat.long, aes(x=datetime, y= value)) + 
+  geom_line() + 
+  facet_wrap(~name, scales = "free_y", ncol=1) +
+  scale_x_datetime(breaks = "1 month")
+```
+
+## plot heat accumulation for every year, now with 2022
+```{r}
+kyoto_preds %>% bind_rows(kyoto_2022_plotdat.long) %>% 
+  filter(jday <= 120, name=="res_z") %>% 
+  ggplot(aes(x = jday, y = value, colour = factor(blooming_year), group = factor(blooming_year))) +
+  geom_line(size=1) +
+  scale_colour_viridis_d(option = "H") + 
+  gghighlight(factor(blooming_year)=="2022", unhighlighted_params = list(colour = NULL, alpha = 0.3)) +
+  ylim(0.01, NA)# cheeky hack to remove after blooming 0 values 
+```
+
+## What could happen in Basel in 2022?
+Using data up until the latest available for the season 2021-2022, I replace previous years' Nov-now data with this year's, and then see what would have happened had the years continued in the way in which they did. 
+```{r}
+replacement_basel_DF = basel_DF %>% filter(Month %in% c(1:5,11,12), Year >= 2001)
+replacement_basel_2022 = replacement_basel_DF %>% filter(Year==2022 | (Year==2021 & Month %in% 11:12)) %>% add_date
+replacement_basel_2022 %>% count(Month, Day) %>% count(n) # not too much missing
+b2022int = interpolate_gaps_hourly(hourtemps=replacement_basel_2022, latitude=47.4814)$weather %>% add_date
+
+ggplot() + geom_point(b2022int %>% filter(!Date %in% replacement_basel_2022$Date), mapping=aes(x=Date, y=Temp), colour="black") + geom_line(replacement_basel_2022, mapping=aes(x=Date, y=Temp), colour="red")
+
+replace_basel_all = bind_rows(b2022int %>% select(Year, Month, Day, Hour, Temp))
+for (i in seq_along(season_years_basel)){
+  replace_basel_all = bind_rows(replace_basel_all,
+  b2022int %>% 
+    select(Year, Month, Day, Hour, Temp) %>% 
+    mutate(Year = (Year - 21 + i))
+  )
+}
+head(basel_DF %>% filter(Year==2001, Month==11))
+replacement_basel_DF_final = replacement_basel_DF %>% 
+  rows_upsert(replace_basel_all, by = c("Year", "Month", "Day", "Hour")) %>% 
+  group_by(Year, Month, Day) %>% 
+  mutate(Date = ISOdate(Year, Month, Day, Hour),
+         JDay = yday(Date)) %>% # without this there are NAs in the JDay and the traces separate a bit early
+  ungroup() %>% 
+  arrange(Date)
+head(replacement_basel_DF_final, 10)
+```
+
+## Plot the counterfactual outcomes for Basel
+```{r}
+basel_counterfactual_preds = map_dfr(season_years_basel, ~calc_model_outputs(input_DF = replacement_basel_DF_final, blooming_year = .x, sim_ann_res = Fit_res_basel))
+basel_counterfactual_preds %>% 
+  filter(jday<120, name=="res_z") %>% 
+  group_by(blooming_year) %>% 
+  slice(1:which.max(value)) %>%
+  ungroup() %>% 
+  ggplot(aes(x = jday, y = value, colour = factor(blooming_year), group = factor(blooming_year))) +
+  geom_line(size=1) +
+  scale_colour_viridis_d(option = "H")
+```
+
+## Summarise Basel counterfactuals
+```{r}
+basel_counterfactual_preds_summary = basel_counterfactual_preds %>% 
+  filter(value >= Fit_res_basel$par[2], name=="res_z")
+basel_counterfactual_preds_summary
+basel_counterfactual_preds_summary %>% 
+  summarise(mean = mean(jday),
+            min = min(jday),
+            max = max(jday),
+            mean_date = as.Date(mean, origin=as.Date("2021-12-31")))
+```
+
