@@ -83,6 +83,9 @@ kyoto_tbl = kyoto_tbl %>%
 basel_tbl = basel_tbl %>% 
   mutate(JDay = yday(datetime)) %>% 
   rename(Year=yr, Hour=hr, Temp=temp)
+vancouver_tbl = vancouver_tbl %>% 
+  mutate(JDay = yday(datetime)) %>% 
+  rename(Year=yr, Hour=hr, Temp=temp)
 ```
 
 ## Chilling calcs require DF
@@ -90,6 +93,7 @@ basel_tbl = basel_tbl %>%
 washington_DF = washingtonDC_tbl %>% select(Year, Month=mon, Day=day, Hour, Temp, JDay) %>% as.data.frame()
 kyoto_DF = kyoto_tbl %>% select(Year, Month=mon, Day=day, Hour, Temp, JDay) %>% as.data.frame()
 basel_DF = basel_tbl %>% select(Year, Month=mon, Day=day, Hour, Temp, JDay) %>% as.data.frame()
+vancouver_DF = vancouver_tbl %>% select(Year, Month=mon, Day=day, Hour, Temp, JDay) %>% as.data.frame()
 ```
 
 The `chilling` function calculates Chill Portions using Dynamic model default parameters. 
@@ -98,9 +102,11 @@ As the original publication said that these parameters should be cultivar and lo
 washington_chilling = chilling(washington_DF, 305, 60)
 kyoto_chilling = chilling(kyoto_DF, 305, 60)
 basel_chilling = chilling(basel_DF, 305, 60)
+vancouver_chilling = chilling(vancouver_DF, 305, 60)
 bind_rows(tail(washington_chilling,5) %>% add_column(Location = "Washington DC", .before = 1),
           tail(basel_chilling, 5) %>% add_column(Location = "Basel, CH", .before = 1),
-          tail(kyoto_chilling, 5) %>% add_column(Location = "Kyoto, JP", .before = 1))
+          tail(kyoto_chilling, 5) %>% add_column(Location = "Kyoto, JP", .before = 1),
+          tail(vancouver_chilling,5) %>% add_column(Location = "Vancouver, CA", .before = 1))
 ```
 
 ## PhenoFlex
@@ -724,3 +730,276 @@ basel_counterfactual_preds_summary %>%
             mean_date = as.Date(mean, origin=as.Date("2021-12-31")))
 ```
 
+## What could happen in Kyoto in 2022?
+```{r, kyoto-interp}
+replacement_kyoto_DF = kyoto_DF %>% filter(Month %in% c(1:5,11,12), Year >= 1993)
+replacement_kyoto_2022 = replacement_kyoto_DF %>% filter(Year==2022 | (Year==2021 & Month %in% 11:12)) %>% add_date
+replacement_kyoto_2022 %>% count(Month, Day) %>% count(n) # not too much missing
+kyoto2022int = interpolate_gaps_hourly(hourtemps=replacement_kyoto_2022, latitude=35.01198)$weather %>% add_date
+
+ggplot() + geom_line(replacement_kyoto_2022, mapping=aes(x=Date, y=Temp), colour="red") + geom_point(kyoto2022int %>% filter(!Date %in% replacement_kyoto_2022$Date), mapping=aes(x=Date, y=Temp), colour="black") + labs(caption = "Black dots show interpolated points")
+
+replacement_kyoto_2022 %>% ggplot() + geom_line(aes(x=Hour, y=Temp, group=JDay)) + labs(caption="Probably the times are actually UTC not local")
+
+replace_kyoto_all = bind_rows(kyoto2022int %>% select(Year, Month, Day, Hour, Temp))
+for (i in seq_along(season_years_kyoto)){
+  replace_kyoto_all = bind_rows(replace_kyoto_all,
+  kyoto2022int %>% 
+    select(Year, Month, Day, Hour, Temp) %>% 
+    mutate(Year = case_when(Year==2021 ~ season_years_kyoto[i] -1L ,
+                            Year==2022 ~ season_years_kyoto[i]))
+  )
+}
+head(kyoto_DF %>% filter(Year==1993, Month==11))
+head(replacement_kyoto_DF)
+replacement_kyoto_DF_final = replacement_kyoto_DF %>% 
+  rows_upsert(replace_kyoto_all, by = c("Year", "Month", "Day", "Hour")) %>% 
+  group_by(Year, Month, Day) %>% 
+  mutate(Date = ISOdate(Year, Month, Day, Hour),
+         JDay = yday(Date)) %>% # without this there are NAs in the JDay and the traces separate a bit early
+  ungroup() %>% 
+  arrange(Date)
+head(replacement_kyoto_DF_final%>% filter(Year==1993, Month==11))# %>% filter(Month==2, Day==27, ), 10)
+```
+
+## Plot the counterfactual outcomes for kyoto
+```{r, kyoto-counterfactual-preds}
+kyoto_counterfactual_preds = map_dfr(season_years_kyoto, ~calc_model_outputs(input_DF = replacement_kyoto_DF_final, blooming_year = .x, sim_ann_res = Fit_res_kyoto))
+kyoto_counterfactual_preds %>% 
+  filter(jday<140, name=="res_z") %>% 
+  group_by(blooming_year) %>% 
+  slice(1:which.max(value)) %>%
+  ungroup() %>% 
+  ggplot(aes(x = jday, y = value, colour = factor(blooming_year), group = factor(blooming_year))) +
+  geom_line(size=1) +
+  scale_colour_viridis_d(option = "H") +
+  scale_x_continuous(breaks = seq(0,120,20)) +
+  labs(x = "Julian Day", y = "Heat accumulation (arbitrary units)", colour = "Blooming Year") +
+  guides(colour = guide_legend(ncol=2)) + 
+  theme_bw()
+```
+
+## Summarise kyoto counterfactuals
+```{r}
+kyoto_counterfactual_preds_summary = kyoto_counterfactual_preds %>% 
+  filter(value >= Fit_res_kyoto$par[2], name=="res_z")
+kyoto_counterfactual_preds_summary
+kyoto_counterfactual_preds_summary %>% 
+  summarise(mean = mean(jday),
+            min = min(jday),
+            max = max(jday),
+            mean_date = as.Date(mean, origin=as.Date("2021-12-31")),
+            n=n())
+```
+
+## What could happen in washington in 2022?
+```{r, washington-interp}
+replacement_washington_DF = washington_DF %>% filter(Month %in% c(1:5,11,12), Year >= 1937)
+replacement_washington_2022 = replacement_washington_DF %>% filter(Year==2022 | (Year==2021 & Month %in% 11:12)) %>% add_date
+replacement_washington_2022 %>% count(Month, Day) %>% count(n) # not too much missing
+washington2022int = interpolate_gaps_hourly(hourtemps=replacement_washington_2022, latitude=38.8853)$weather %>% add_date
+
+ggplot() + geom_point(washington2022int %>% filter(!Date %in% replacement_washington_2022$Date), mapping=aes(x=Date, y=Temp), colour="black") + geom_line(replacement_washington_2022, mapping=aes(x=Date, y=Temp), colour="red") + labs(caption = "Black dots show interpolated points")
+
+replacement_washington_2022 %>% ggplot() + geom_line(aes(x=Hour, y=Temp, group=JDay)) + labs(caption="Probably the times are actually UTC not local")
+
+replace_washington_all = bind_rows(washington2022int %>% select(Year, Month, Day, Hour, Temp))
+for (i in seq_along(season_years_washington)){
+  replace_washington_all = bind_rows(replace_washington_all,
+  washington2022int %>% 
+    select(Year, Month, Day, Hour, Temp) %>% 
+    mutate(Year = case_when(Year==2021 ~ season_years_washington[i] -1L ,
+                            Year==2022 ~ season_years_washington[i]))
+  )
+}
+head(washington_DF %>% filter(Year==1937, Month==11))
+head(replacement_washington_DF %>% filter(Year==1937, Month==11))
+replacement_washington_DF_final = replacement_washington_DF %>% 
+  rows_upsert(replace_washington_all, by = c("Year", "Month", "Day", "Hour")) %>% 
+  group_by(Year, Month, Day) %>% 
+  mutate(Date = ISOdate(Year, Month, Day, Hour),
+         JDay = yday(Date)) %>% # without this there are NAs in the JDay and the traces separate a bit early
+  ungroup() %>% 
+  arrange(Date)
+head(replacement_washington_DF_final %>% filter(Year==1937, Month==11))# %>% filter(Month==2, Day==27, ), 10)
+head(replacement_washington_2022)
+```
+
+## Plot the counterfactual outcomes for washington
+```{r, washington-counterfactual-preds}
+washington_counterfactual_preds = map_dfr(season_years_washington, ~calc_model_outputs(input_DF = replacement_washington_DF_final, blooming_year = .x, sim_ann_res = Fit_res_washington))
+washington_counterfactual_preds %>% 
+  filter(jday<140, name=="res_z") %>% 
+  group_by(blooming_year) %>% 
+  slice(1:which.max(value)) %>%
+  ungroup() %>% 
+  ggplot(aes(x = jday, y = value, colour = blooming_year, group = factor(blooming_year))) +
+  geom_line(size=1) +
+  scale_colour_viridis_c(option = "H") +
+  scale_x_continuous(breaks = seq(0,120,20)) +
+  labs(x = "Julian Day", y = "Heat accumulation (arbitrary units)", colour = "Blooming Year") +
+  theme_bw()
+```
+
+## Summarise washington counterfactuals
+```{r}
+washington_counterfactual_preds_summary = washington_counterfactual_preds %>% 
+  filter(value >= Fit_res_washington$par[2], name=="res_z")
+washington_counterfactual_preds_summary
+washington_counterfactual_preds_summary %>% 
+  summarise(mean = mean(jday),
+            min = min(jday),
+            max = max(jday),
+            mean_date = as.Date(mean, origin=as.Date("2021-12-31")),
+            n=n())
+```
+
+## Vancouver
+Using the fitted parameters from the same species *Prunus × yedoensis* as in Washington, even if the cultivars are different.
+```{r}
+season_years_vancouver = c(1978:2005, 2007:2021)
+vancouver_preds = map_dfr(season_years_vancouver, ~calc_model_outputs(input_DF = vancouver_DF, blooming_year = .x, sim_ann_res = Fit_res_washington))
+
+vancouver_preds %>% 
+  filter(jday <= 120, name=="res_z") %>% 
+  ggplot(aes(x = jday, y = value, colour = blooming_year, group = factor(blooming_year))) +
+  geom_line() +
+  scale_colour_viridis_c(option = "H") + 
+  ylim(0.01, NA)# cheeky hack to remove after blooming 0 values
+
+iSeason_vancouver_2022 = genSeason(vancouver_DF, mrange = c(11,5), years = c(2022))
+res_vancouver_2022 = PhenoFlex(temp = vancouver_DF$Temp[iSeason_vancouver_2022[[1]]],
+                 times = c(1: length(vancouver_DF$Temp[iSeason_vancouver_2022[[1]]])),
+                 zc = Fit_res_washington$par[2],
+                 stopatzc = TRUE,
+                 yc = Fit_res_washington$par[1],
+                 basic_output = FALSE,
+                 s1 = Fit_res_washington$par[3],
+                 Tu = Fit_res_washington$par[4],
+                 E0 = Fit_res_washington$par[5],
+                 E1 = Fit_res_washington$par[6],
+                 A0 = Fit_res_washington$par[7],
+                 A1 = Fit_res_washington$par[8],
+                 Tf = Fit_res_washington$par[9],
+                 Tc = Fit_res_washington$par[10],
+                 Tb = Fit_res_washington$par[11],
+                 slope = Fit_res_washington$par[12],
+                 )
+
+vancouver_2022_plotdat = tibble(
+  blooming_year = 2022,
+  datetime = make_datetime(year = vancouver_DF$Year[iSeason_vancouver_2022[[1]]], 
+                           month = vancouver_DF$Month[iSeason_vancouver_2022[[1]]],
+                           day = vancouver_DF$Day[iSeason_vancouver_2022[[1]]],
+                           hour = vancouver_DF$Hour[iSeason_vancouver_2022[[1]]]),
+  jday = vancouver_DF$JDay[iSeason_vancouver_2022[[1]]],
+  temp = vancouver_DF$Temp[iSeason_vancouver_2022[[1]]],
+  times = c(1:length(vancouver_DF$Temp[iSeason_vancouver_2022[[1]]])),
+  res_x = res_vancouver_2022[[1]],
+  res_y = res_vancouver_2022[[2]],
+  res_z = res_vancouver_2022[[3]],
+  res_xs = res_vancouver_2022[[4]]
+)
+vancouver_2022_plotdat.long = pivot_longer(vancouver_2022_plotdat, c(temp, starts_with("res_")))
+ggplot(vancouver_2022_plotdat.long, aes(x=datetime, y= value)) + 
+  geom_line() + 
+  facet_wrap(~name, scales = "free_y", ncol=1) +
+  scale_x_datetime(breaks = "1 month")
+```
+
+## plot heat accumulation for every Vancouver year, now with 2022
+```{r}
+vancouver_preds %>% bind_rows(vancouver_2022_plotdat.long) %>% 
+  filter(jday <= 120, name=="res_z") %>% 
+  ggplot(aes(x = jday, y = value, colour = blooming_year, group = factor(blooming_year))) +
+  geom_line(size=1) +
+  scale_colour_viridis_c(option = "H") + 
+  gghighlight(factor(blooming_year)=="2022", unhighlighted_params = list(colour = NULL, alpha = 0.3)) +
+  ylim(0.01, NA)# cheeky hack to remove after blooming 0 values 
+vancouver_preds %>% bind_rows(vancouver_2022_plotdat.long) %>% 
+  filter(jday <= 120, name=="res_z", blooming_year!=2022) %>% 
+  group_by(blooming_year) %>% 
+  slice(which.max(value)) %>%
+  ungroup() %>% 
+  summarise(mean = mean(jday),
+            min = min(jday),
+            max = max(jday),
+            mean_date = as.Date(mean, origin=as.Date("2021-12-31")),
+            n=n())
+```
+
+## Interpolate Vancouver data
+```{r}
+replacement_vancouver_DF = vancouver_DF %>% filter(Month %in% c(1:5,11,12), Year >= 1977)
+replacement_vancouver_2022 = replacement_vancouver_DF %>% filter(Year==2022 | (Year==2021 & Month %in% 11:12)) %>% add_date
+replacement_vancouver_2022 %>% count(Month, Day) %>% count(n) # not too much missing
+vancouver2022int = interpolate_gaps_hourly(hourtemps=replacement_vancouver_2022, latitude=49.2237)$weather %>% add_date
+
+ggplot() + geom_line(replacement_vancouver_2022, mapping=aes(x=Date, y=Temp), colour="red") + geom_point(vancouver2022int %>% filter(!Date %in% replacement_vancouver_2022$Date), mapping=aes(x=Date, y=Temp), colour="black") + labs(caption = "Black dots show interpolated points")
+
+replacement_vancouver_2022 %>% ggplot() + geom_line(aes(x=Hour, y=Temp, group=JDay)) + labs(caption="These data look a tad suspicious")
+
+replace_vancouver_all = bind_rows(vancouver2022int %>% select(Year, Month, Day, Hour, Temp))
+for (i in seq_along(season_years_vancouver)){
+  replace_vancouver_all = bind_rows(replace_vancouver_all,
+  vancouver2022int %>% 
+    select(Year, Month, Day, Hour, Temp) %>% 
+    mutate(Year = case_when(Year==2021 ~ season_years_vancouver[i] -1L ,
+                            Year==2022 ~ season_years_vancouver[i]))
+  )
+}
+head(vancouver_DF %>% filter(Year==1977, Month==11))
+head(replacement_vancouver_DF)
+replacement_vancouver_DF_final = replacement_vancouver_DF %>% 
+  rows_upsert(replace_vancouver_all, by = c("Year", "Month", "Day", "Hour")) %>% 
+  group_by(Year, Month, Day) %>% 
+  mutate(Date = ISOdate(Year, Month, Day, Hour),
+         JDay = yday(Date)) %>% # without this there are NAs in the JDay and the traces separate a bit early
+  ungroup() %>% 
+  arrange(Date)
+head(replacement_vancouver_DF_final %>% filter(Year==1977, Month==11))# %>% filter(Month==2, Day==27, ), 10)
+head(replacement_vancouver_2022)
+```
+
+## Plot the counterfactual outcomes for Vancouver using Washington parameters
+```{r, vancouver-counterfactual-preds}
+vancouver_counterfactual_preds = map_dfr(season_years_vancouver, ~calc_model_outputs(input_DF = replacement_vancouver_DF_final, blooming_year = .x, sim_ann_res = Fit_res_washington))
+vancouver_counterfactual_preds %>% 
+  filter(jday<140, name=="res_z") %>% 
+  group_by(blooming_year) %>% 
+  slice(1:which.max(value)) %>%
+  ungroup() %>% 
+  ggplot(aes(x = jday, y = value, colour = blooming_year, group = factor(blooming_year))) +
+  geom_line(size=1) +
+  scale_colour_viridis_c(option = "H") +
+  scale_x_continuous(breaks = seq(0,120,20)) +
+  labs(x = "Julian Day", y = "Heat accumulation (arbitrary units)", colour = "Blooming Year") +
+  theme_bw()
+```
+
+## Summarise Vancouver counterfactuals
+NB According to https://www.vcbf.ca/blooming-now 'Akebono' seems to be a slightly later cultivar than ‘Somei-yoshino’ but I leave the predictions as is
+```{r}
+vancouver_counterfactual_preds_summary = vancouver_counterfactual_preds %>% 
+  filter(value >= Fit_res_washington$par[2], name=="res_z")
+vancouver_counterfactual_preds_summary
+vancouver_counterfactual_preds_summary %>% 
+  summarise(mean = mean(jday),
+            min = min(jday),
+            max = max(jday),
+            mean_date = as.Date(mean, origin=as.Date("2021-12-31")),
+            n=n())
+```
+
+## Final table
+```{r, final-table}
+final_table = tibble(year = 2022:2031, 
+      kyoto = round(mean(kyoto_counterfactual_preds_summary$jday)),
+      liestal = round(mean(basel_counterfactual_preds_summary$jday)),
+      washingtondc = round(mean(washington_counterfactual_preds_summary$jday)),
+      vancouver = round(mean(vancouver_counterfactual_preds_summary$jday))
+)
+write.csv(final_table,
+          file = here::here("output", "cherry-predictions.csv"),
+          row.names = FALSE)
+```
