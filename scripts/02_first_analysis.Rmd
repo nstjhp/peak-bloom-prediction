@@ -38,7 +38,7 @@ div.main-container {
   margin-right: auto;
 }
 </style>
-```{r setup, results='show', message=FALSE, warning=TRUE}
+```{r setup, results='show', message=FALSE, warning=FALSE}
 knitr::opts_chunk$set(message = FALSE, echo = TRUE, warning=FALSE)
 options(width = 300)
 library(tidyverse)
@@ -172,9 +172,11 @@ ggplot(bind_cols(year = season_years_washington,
                  actual=Fit_res_washington$bloomJDays, 
                  predicted=Fit_res_washington$pbloomJDays), 
        aes(actual, predicted, fill=year)) + 
-  geom_point(shape=21, alpha=0.8, size=2) +
+  geom_point(shape=21, alpha=0.8, size=4) +
   geom_abline(slope = 1) +
-  scale_fill_viridis_c(option = "H")
+  scale_fill_viridis_c(option = "H") + 
+  theme_bw()
+ggsave(here::here("figures", "washington_simann.pdf"), height = 5, width = 7.5)
 ```
 
 ## Bootstrapping (takes a long time so not run)
@@ -250,9 +252,11 @@ ggplot(bind_cols(year = season_years_kyoto,
                  actual=Fit_res_kyoto$bloomJDays, 
                  predicted=Fit_res_kyoto$pbloomJDays), 
        aes(actual, predicted, fill=year)) + 
-  geom_point(shape=21, alpha=0.8, size=2) +
+  geom_point(shape=21, alpha=0.8, size=4) +
   geom_abline(slope = 1) +
-  scale_fill_viridis_c(option = "H")
+  scale_fill_viridis_c(option = "H") + 
+  theme_bw()
+ggsave(here::here("figures", "kyoto_simann.pdf"), height = 5, width = 7.5)
 ```
 
 ## PhenoFlex Kyoto using optimised params for 2019-20
@@ -311,9 +315,11 @@ ggplot(bind_cols(year = season_years_basel,
                  actual=Fit_res_basel$bloomJDays, 
                  predicted=Fit_res_basel$pbloomJDays), 
        aes(actual, predicted, fill=year)) + 
-  geom_point(shape=21, alpha=0.8, size=2) +
+  geom_point(shape=21, alpha=0.8, size=4) +
   geom_abline(slope = 1) +
-  scale_fill_viridis_c(option = "H")
+  scale_fill_viridis_c(option = "H") + 
+  theme_bw()
+ggsave(here::here("figures", "basel_simann.pdf"), height = 5, width = 7.5)
 ```
 
 ## PhenoFlex basel using optimised params for 2020-21
@@ -999,7 +1005,16 @@ final_table = tibble(year = 2022:2031,
       washingtondc = round(mean(washington_counterfactual_preds_summary$jday)),
       vancouver = round(mean(vancouver_counterfactual_preds_summary$jday))
 )
+final_table %>%
+  mutate(across(.fns = as.integer)) %>% 
+  myflextable() %>%
+  autofit()
 write.csv(final_table,
           file = here::here("output", "cherry-predictions.csv"),
           row.names = FALSE)
+```
+
+## Session Info
+```{r}
+sessionInfo()
 ```
