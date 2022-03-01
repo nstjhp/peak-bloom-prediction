@@ -365,7 +365,7 @@ ggplot(basel_2021_plotdat.long, aes(x=datetime, y= value)) +
 ```
 
 ## function to run PhenoFlex for every season to get the Chill Portions and heat accumulation
-```{r}
+```{r, FN-calc-model-outputs}
 calc_model_outputs = function (input_DF, blooming_year, sim_ann_res) {
   iSeason = genSeason(input_DF, mrange = c(11,5), years = blooming_year)
   predicted_res = PhenoFlex(temp = input_DF$Temp[iSeason[[1]]],
@@ -420,9 +420,24 @@ ggplot(basel_preds %>% filter(blooming_year %in% 2002:2011, jday <= 120), aes(x 
 basel_preds %>% 
   filter(jday <= 120, name=="res_z") %>% 
   ggplot(aes(x = jday, y = value, colour = factor(blooming_year), group = factor(blooming_year))) +
-  geom_line() +
+  geom_line(size=1) +
   scale_colour_viridis_d(option = "H") + 
-  ylim(0.01, NA)# cheeky hack to remove after blooming 0 values
+  scale_x_continuous(breaks = seq(0,120,20), limits = c(0,120)) +
+  labs(x = "Julian Day", y = "Heat accumulation (arbitrary units)", colour = "Blooming Year") +
+  theme_bw() +
+  guides(colour = guide_legend(ncol=2)) + 
+  ylim(0.01, NA)# cheeky hack to remove after blooming 0 values 
+ggsave(here::here("figures", "basel_predictions.pdf"), height = 5, width = 7.5)
+basel_preds %>% 
+  filter(jday <= 120, name=="res_z") %>% 
+  group_by(blooming_year) %>% 
+  slice(which.max(value)) %>%
+  ungroup() %>% 
+  summarise(mean = mean(jday),
+            min = min(jday),
+            max = max(jday),
+            mean_date = as.Date(mean, origin=as.Date("2021-12-31")),
+            n=n())
 ```
 
 ## 2022 season's weather data
@@ -474,8 +489,12 @@ basel_preds %>% bind_rows(basel_2022_plotdat.long) %>%
   ggplot(aes(x = jday, y = value, colour = factor(blooming_year), group = factor(blooming_year))) +
   geom_line(size=1) +
   scale_colour_viridis_d(option = "H") + 
+  scale_x_continuous(breaks = seq(0,120,20), limits = c(0,120)) +
   gghighlight(factor(blooming_year)=="2022", unhighlighted_params = list(colour = NULL, alpha = 0.3)) +
+  labs(x = "Julian Day", y = "Heat accumulation (arbitrary units)", colour = "Blooming Year") +
+  theme_bw() +
   ylim(0.01, NA)# cheeky hack to remove after blooming 0 values 
+ggsave(here::here("figures", "basel_2022_highlighted.pdf"), height = 5, width = 7.5)
 ```
 
 ## Get the outputs for Kyoto using optimised params
@@ -679,15 +698,18 @@ head(replacement_basel_DF_final, 10)
 basel_counterfactual_preds = map_dfr(season_years_basel, ~calc_model_outputs(input_DF = replacement_basel_DF_final, blooming_year = .x, sim_ann_res = Fit_res_basel))
 basel_counterfactual_preds %>% 
   filter(jday<120, name=="res_z") %>% 
-  group_by(blooming_year) %>% 
-  slice(1:which.max(value)) %>%
-  ungroup() %>% 
+  # group_by(blooming_year) %>% 
+  # slice(1:which.max(value)) %>%
+  # ungroup() %>% 
   ggplot(aes(x = jday, y = value, colour = factor(blooming_year), group = factor(blooming_year))) +
   geom_line(size=1) +
   scale_colour_viridis_d(option = "H") +
+  scale_x_continuous(breaks = seq(0,120,20), limits = c(0,120)) +
   labs(x = "Julian Day", y = "Heat accumulation (arbitrary units)", colour = "Blooming Year") +
   guides(colour = guide_legend(ncol=2)) + 
+  ylim(0.01, NA) +# do it old way for consistent x-axes
   theme_bw()
+ggsave(here::here("figures", "basel_counterfactuals.pdf"), height = 5, width = 7.5)
 ```
 
 ## Summarise Basel counterfactuals
