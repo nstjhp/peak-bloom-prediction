@@ -549,6 +549,99 @@ kyoto_preds %>% bind_rows(kyoto_2022_plotdat.long) %>%
   scale_colour_viridis_d(option = "H") + 
   gghighlight(factor(blooming_year)=="2022", unhighlighted_params = list(colour = NULL, alpha = 0.3)) +
   ylim(0.01, NA)# cheeky hack to remove after blooming 0 values 
+kyoto_preds %>% bind_rows(kyoto_2022_plotdat.long) %>% 
+  filter(jday <= 120, name=="res_z", blooming_year!=2022) %>% 
+  group_by(blooming_year) %>% 
+  slice(which.max(value)) %>%
+  ungroup() %>% 
+  summarise(mean = mean(jday),
+            min = min(jday),
+            max = max(jday),
+            mean_date = as.Date(mean, origin=as.Date("2021-12-31")),
+            n=n())
+```
+
+## Get the outputs for Washington using optimised params
+```{r}
+washington_preds = map_dfr(season_years_washington, ~calc_model_outputs(input_DF = washington_DF, blooming_year = .x, sim_ann_res = Fit_res_washington))
+  
+ggplot(washington_preds %>% filter(blooming_year %in% 2014:2020, jday <= 120), aes(x = jday, y = value)) + 
+  geom_line() + 
+  facet_grid(name ~ blooming_year, scales = "free")# +
+ # scale_x_datetime(breaks = "1 month")
+```
+
+## plot heat accumulation for every year in washington
+```{r}
+washington_preds %>% 
+  filter(jday <= 120, name=="res_z") %>% 
+  ggplot(aes(x = jday, y = value, colour = blooming_year, group = factor(blooming_year))) +
+  geom_line() +
+  scale_colour_viridis_c(option = "H") + 
+  ylim(0.01, NA)# cheeky hack to remove after blooming 0 values
+```
+
+## 2022 season's weather data for washington
+```{r}
+iSeason_washington_2022 = genSeason(washington_DF, mrange = c(11,5), years = c(2022))
+res_washington_2022 = PhenoFlex(temp = washington_DF$Temp[iSeason_washington_2022[[1]]],
+                 times = c(1: length(washington_DF$Temp[iSeason_washington_2022[[1]]])),
+                 zc = Fit_res_washington$par[2],
+                 stopatzc = TRUE,
+                 yc = Fit_res_washington$par[1],
+                 basic_output = FALSE,
+                 s1 = Fit_res_washington$par[3],
+                 Tu = Fit_res_washington$par[4],
+                 E0 = Fit_res_washington$par[5],
+                 E1 = Fit_res_washington$par[6],
+                 A0 = Fit_res_washington$par[7],
+                 A1 = Fit_res_washington$par[8],
+                 Tf = Fit_res_washington$par[9],
+                 Tc = Fit_res_washington$par[10],
+                 Tb = Fit_res_washington$par[11],
+                 slope = Fit_res_washington$par[12],
+                 )
+
+washington_2022_plotdat = tibble(
+  blooming_year = 2022,
+  datetime = make_datetime(year = washington_DF$Year[iSeason_washington_2022[[1]]], 
+                           month = washington_DF$Month[iSeason_washington_2022[[1]]],
+                           day = washington_DF$Day[iSeason_washington_2022[[1]]],
+                           hour = washington_DF$Hour[iSeason_washington_2022[[1]]]),
+  jday = washington_DF$JDay[iSeason_washington_2022[[1]]],
+  temp = washington_DF$Temp[iSeason_washington_2022[[1]]],
+  times = c(1:length(washington_DF$Temp[iSeason_washington_2022[[1]]])),
+  res_x = res_washington_2022[[1]],
+  res_y = res_washington_2022[[2]],
+  res_z = res_washington_2022[[3]],
+  res_xs = res_washington_2022[[4]]
+)
+washington_2022_plotdat.long = pivot_longer(washington_2022_plotdat, c(temp, starts_with("res_")))
+ggplot(washington_2022_plotdat.long, aes(x=datetime, y= value)) + 
+  geom_line() + 
+  facet_wrap(~name, scales = "free_y", ncol=1) +
+  scale_x_datetime(breaks = "1 month")
+```
+
+## plot heat accumulation for every year, now with 2022
+```{r}
+washington_preds %>% bind_rows(washington_2022_plotdat.long) %>% 
+  filter(jday <= 120, name=="res_z") %>% 
+  ggplot(aes(x = jday, y = value, colour = blooming_year, group = factor(blooming_year))) +
+  geom_line(size=1) +
+  scale_colour_viridis_c(option = "H") + 
+  gghighlight(factor(blooming_year)=="2022", unhighlighted_params = list(colour = NULL, alpha = 0.3)) +
+  ylim(0.01, NA)# cheeky hack to remove after blooming 0 values 
+washington_preds %>% bind_rows(washington_2022_plotdat.long) %>% 
+  filter(jday <= 120, name=="res_z", blooming_year!=2022) %>% 
+  group_by(blooming_year) %>% 
+  slice(which.max(value)) %>%
+  ungroup() %>% 
+  summarise(mean = mean(jday),
+            min = min(jday),
+            max = max(jday),
+            mean_date = as.Date(mean, origin=as.Date("2021-12-31")),
+            n=n())
 ```
 
 ## What could happen in Basel in 2022?
